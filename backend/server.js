@@ -1,4 +1,4 @@
-// server.js - メインサーバーファイル
+// server.js - メインサーバーファイル（改善版）
 const express = require('express');
 const mysql = require('mysql2/promise');
 const path = require('path');
@@ -62,7 +62,7 @@ app.use(express.urlencoded({ extended: true }));
 
 // 静的ファイル配信（開発環境のみ）
 if (process.env.NODE_ENV !== 'production') {
-  app.use('/', express.static(STORAGE_ROOT, {
+  app.use('/uploads', express.static(STORAGE_ROOT, {
     maxAge: '7d',
     setHeaders: (res, path) => {
       if (path.endsWith('.pdf') || path.match(/\.(jpg|jpeg|png|webp)$/i)) {
@@ -79,17 +79,52 @@ const limiter = rateLimit({
 });
 app.use('/api/', limiter);
 
-// ===== 旧Multer設定（互換性のため保持、必要に応じて削除可能） =====
-const legacyUpload = multer({ 
-  dest: path.join(STORAGE_ROOT, 'legacy'),
+// ===== ディレクトリ作成ヘルパー =====
+async function ensureDir(dirPath) {
+  try {
+    await fs.mkdir(dirPath, { recursive: true });
+  } catch (error) {
+    if (error.code !== 'EEXIST') {
+      throw error;
+    }
+  }
+}
+
+// ===== Multer設定（改善版） =====
+const storage = multer.diskStorage({
+  destination: async function (req, file, cb) {
+    const { facilityId, type } = req.body;
+    const date = new Date().toISOString().split('T')[0];
+    const photoType = type || 'general';
+    
+    // ディレクトリ構造: uploads_dev/photos/{facility_id}/{YYYY-MM-DD}/{before|after}/
+    const uploadPath = path.join(STORAGE_ROOT, 'photos', facilityId.toString(), date, photoType);
+    
+    try {
+      await ensureDir(uploadPath);
+      cb(null, uploadPath);
+    } catch (error) {
+      cb(error);
+    }
+  },
+  filename: function (req, file, cb) {
+    const timestamp = Date.now();
+    const ext = path.extname(file.originalname);
+    const filename = `${timestamp}-${Math.random().toString(36).substring(7)}${ext}`;
+    cb(null, filename);
+  }
+});
+
+const upload = multer({ 
+  storage: storage,
   limits: {
-    fileSize: 10 * 1024 * 1024 // 10MB制限
+    fileSize: 20 * 1024 * 1024 // 20MB制限
   },
   fileFilter: (req, file, cb) => {
-    if (/\.(jpg|jpeg|png|gif|pdf)$/i.test(file.originalname)) {
+    if (/\.(jpg|jpeg|png|gif|webp)$/i.test(file.originalname)) {
       return cb(null, true);
     } else {
-      cb(new Error('画像ファイル（JPEG, PNG, GIF）またはPDFのみアップロード可能です'));
+      cb(new Error('画像ファイル（JPEG, PNG, GIF, WebP）のみアップロード可能です'));
     }
   }
 });
@@ -128,10 +163,6 @@ const requireAdmin = (req, res, next) => {
   }
   next();
 };
-
-// ===== 新しいアップロードルート =====
-const uploadRoutes = require('./src/routes/upload');
-app.use('/api/upload', authenticateToken, uploadRoutes);
 
 // ===== API エンドポイント =====
 
@@ -195,7 +226,7 @@ app.post('/api/auth/login', async (req, res) => {
         email: user.email,
         name: user.name,
         role: user.role,
-        facilities: facilities.map(f => f.id)
+        facilities: facilities.map(f => ({ id: f.id, name: f.name }))
       }
     });
     
@@ -206,12 +237,77 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
+// パスワード変更
+app.post('/api/auth/change-password', authenticateToken, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    
+    // パスワードの強度チェック
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: 'パスワードは6文字以上である必要があります' });
+    }
+    
+    // 現在のパスワードを確認
+    const [users] = await pool.execute(
+      'SELECT password_hash FROM users WHERE id = ?',
+      [req.user.id]
+    );
+    
+    const validPassword = await bcrypt.compare(currentPassword, users[0].password_hash);
+    if (!validPassword) {
+      return res.status(401).json({ error: '現在のパスワードが正しくありません' });
+    }
+    
+    // 新しいパスワードをハッシュ化
+    const newPasswordHash = await bcrypt.hash(newPassword, 10);
+    
+    // パスワードを更新
+    await pool.execute(
+      'UPDATE users SET password_hash = ? WHERE id = ?',
+      [newPasswordHash, req.user.id]
+    );
+    
+    res.json({ message: 'パスワードを変更しました' });
+    logger.info(`パスワード変更: ${req.user.email}`);
+  } catch (error) {
+    logger.error('パスワード変更エラー:', error);
+    res.status(500).json({ error: 'サーバーエラーが発生しました' });
+  }
+});
+
+// トークン検証
+app.get('/api/auth/verify', authenticateToken, (req, res) => {
+  res.json({ ok: true, user: req.user });
+});
+
 // ===== ユーザー管理 =====
 app.get('/api/users', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const [users] = await pool.execute(
       'SELECT id, email, name, role, created_at, is_active FROM users'
     );
+    
+    // 各ユーザーの施設情報も取得
+    for (const user of users) {
+      if (user.role === 'staff') {
+        const [facilities] = await pool.execute(
+          `SELECT f.id, f.name FROM facilities f 
+           JOIN staff_facilities sf ON f.id = sf.facility_id 
+           WHERE sf.staff_user_id = ?`,
+          [user.id]
+        );
+        user.facilities = facilities;
+      } else if (user.role === 'client') {
+        const [facilities] = await pool.execute(
+          'SELECT id, name FROM facilities WHERE client_user_id = ?',
+          [user.id]
+        );
+        user.facilities = facilities;
+      } else {
+        user.facilities = [];
+      }
+    }
+    
     res.json(users);
   } catch (error) {
     logger.error('ユーザー取得エラー:', error);
@@ -219,17 +315,62 @@ app.get('/api/users', authenticateToken, requireAdmin, async (req, res) => {
   }
 });
 
+// ユーザー作成（管理者のみ）
 app.post('/api/users', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const { email, password, name, role } = req.body;
+    const { email, password, name, role, facilityIds = [] } = req.body;
+    
+    // バリデーション
+    if (!email || !password || !name || !role) {
+      return res.status(400).json({ error: '必須項目を入力してください' });
+    }
+    
+    if (!['staff', 'client', 'admin'].includes(role)) {
+      return res.status(400).json({ error: '無効な役割です' });
+    }
+    
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'パスワードは6文字以上である必要があります' });
+    }
+    
     const hashedPassword = await bcrypt.hash(password, 10);
     
+    // ユーザーを作成
     const [result] = await pool.execute(
       'INSERT INTO users (email, password_hash, name, role) VALUES (?, ?, ?, ?)',
       [email, hashedPassword, name, role]
     );
     
-    res.status(201).json({ id: result.insertId, email, name, role });
+    const userId = result.insertId;
+    
+    // スタッフの場合、施設を割り当て
+    if (role === 'staff' && facilityIds.length > 0) {
+      for (const facilityId of facilityIds) {
+        await pool.execute(
+          'INSERT INTO staff_facilities (staff_user_id, facility_id) VALUES (?, ?)',
+          [userId, facilityId]
+        );
+      }
+    }
+    
+    // クライアントの場合、施設を更新
+    if (role === 'client' && facilityIds.length > 0) {
+      for (const facilityId of facilityIds) {
+        await pool.execute(
+          'UPDATE facilities SET client_user_id = ? WHERE id = ?',
+          [userId, facilityId]
+        );
+      }
+    }
+    
+    res.status(201).json({ 
+      id: userId, 
+      email, 
+      name, 
+      role,
+      message: 'ユーザーを作成しました'
+    });
+    
     logger.info(`新規ユーザー作成: ${email}`);
   } catch (error) {
     if (error.code === 'ER_DUP_ENTRY') {
@@ -238,6 +379,53 @@ app.post('/api/users', authenticateToken, requireAdmin, async (req, res) => {
       logger.error('ユーザー作成エラー:', error);
       res.status(500).json({ error: 'サーバーエラーが発生しました' });
     }
+  }
+});
+
+// ユーザー更新（管理者のみ）
+app.put('/api/users/:userId', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { name, email, role, facilityIds, resetPassword, newPassword } = req.body;
+    
+    // ユーザー情報を更新
+    await pool.execute(
+      'UPDATE users SET name = ?, email = ?, role = ? WHERE id = ?',
+      [name, email, role, userId]
+    );
+    
+    // パスワードリセット
+    if (resetPassword && newPassword) {
+      const hashedPassword = await bcrypt.hash(newPassword, 10);
+      await pool.execute(
+        'UPDATE users SET password_hash = ? WHERE id = ?',
+        [hashedPassword, userId]
+      );
+    }
+    
+    // スタッフの施設割り当てを更新
+    if (role === 'staff') {
+      // 既存の割り当てを削除
+      await pool.execute(
+        'DELETE FROM staff_facilities WHERE staff_user_id = ?',
+        [userId]
+      );
+      
+      // 新しい割り当てを追加
+      if (facilityIds && facilityIds.length > 0) {
+        for (const facilityId of facilityIds) {
+          await pool.execute(
+            'INSERT INTO staff_facilities (staff_user_id, facility_id) VALUES (?, ?)',
+            [userId, facilityId]
+          );
+        }
+      }
+    }
+    
+    res.json({ message: 'ユーザー情報を更新しました' });
+  } catch (error) {
+    logger.error('ユーザー更新エラー:', error);
+    res.status(500).json({ error: 'サーバーエラーが発生しました' });
   }
 });
 
@@ -288,11 +476,12 @@ app.post('/api/facilities', authenticateToken, requireAdmin, async (req, res) =>
 app.post('/api/sessions', authenticateToken, async (req, res) => {
   try {
     const { facilityId, cleaningDate, ventilationChecked, airFilterChecked } = req.body;
+    const date = cleaningDate || new Date().toISOString().split('T')[0];
     
     // 既存のセッションをチェック
     const [existing] = await pool.execute(
       'SELECT id FROM cleaning_sessions WHERE facility_id = ? AND cleaning_date = ?',
-      [facilityId, cleaningDate || new Date()]
+      [facilityId, date]
     );
     
     if (existing.length > 0) {
@@ -306,7 +495,7 @@ app.post('/api/sessions', authenticateToken, async (req, res) => {
       // 新規作成
       const [result] = await pool.execute(
         'INSERT INTO cleaning_sessions (facility_id, cleaning_date, staff_user_id, ventilation_checked, air_filter_checked) VALUES (?, ?, ?, ?, ?)',
-        [facilityId, cleaningDate || new Date(), req.user.id, ventilationChecked, airFilterChecked]
+        [facilityId, date, req.user.id, ventilationChecked, airFilterChecked]
       );
       res.status(201).json({ id: result.insertId, created: true });
     }
@@ -316,8 +505,8 @@ app.post('/api/sessions', authenticateToken, async (req, res) => {
   }
 });
 
-// ===== 写真アップロード =====
-app.post('/api/photos/upload', authenticateToken, legacyUpload.array('photos', 20), async (req, res) => {
+// ===== 写真アップロード（改善版） =====
+app.post('/api/photos/upload', authenticateToken, upload.array('photos', 20), async (req, res) => {
   try {
     const { facilityId, sessionId, type } = req.body;
     const uploadedFiles = [];
@@ -336,8 +525,11 @@ app.post('/api/photos/upload', authenticateToken, legacyUpload.array('photos', 2
     for (const file of req.files) {
       // サムネイル生成（画像の場合）
       let thumbnailPath = null;
-      if (/\.(jpg|jpeg|png|gif)$/i.test(file.filename)) {
-        thumbnailPath = file.path.replace(/(\.[^.]+)$/, '_thumb$1');
+      if (/\.(jpg|jpeg|png|gif|webp)$/i.test(file.filename)) {
+        const thumbDir = path.join(path.dirname(file.path), 'thumbnails');
+        await ensureDir(thumbDir);
+        
+        thumbnailPath = path.join(thumbDir, `thumb_${file.filename}`);
         await sharp(file.path)
           .resize(300, 200, { fit: 'cover' })
           .toFile(thumbnailPath);
@@ -349,11 +541,17 @@ app.post('/api/photos/upload', authenticateToken, legacyUpload.array('photos', 2
         [actualSessionId, file.path, thumbnailPath, type, file.size, file.originalname]
       );
       
+      // 相対パスを生成
+      const relativePath = path.relative(STORAGE_ROOT, file.path);
+      const relativeThumbPath = thumbnailPath ? path.relative(STORAGE_ROOT, thumbnailPath) : null;
+      
       uploadedFiles.push({
         id: result.insertId,
         filename: file.filename,
         type: type,
-        size: file.size
+        size: file.size,
+        url: `/uploads/${relativePath.replace(/\\/g, '/')}`,
+        thumbnailUrl: relativeThumbPath ? `/uploads/${relativeThumbPath.replace(/\\/g, '/')}` : null
       });
     }
     
@@ -403,7 +601,14 @@ app.get('/api/albums/:facilityId', authenticateToken, async (req, res) => {
         'SELECT id, type, file_path, thumbnail_path, uploaded_at FROM photos WHERE cleaning_session_id = ?',
         [session.id]
       );
-      session.photos = photos;
+      
+      // パスをURLに変換
+      session.photos = photos.map(photo => ({
+        ...photo,
+        url: `/uploads/${path.relative(STORAGE_ROOT, photo.file_path).replace(/\\/g, '/')}`,
+        thumbnailUrl: photo.thumbnail_path ? 
+          `/uploads/${path.relative(STORAGE_ROOT, photo.thumbnail_path).replace(/\\/g, '/')}` : null
+      }));
     }
     
     res.json(sessions);
@@ -448,80 +653,25 @@ app.get('/api/stats/daily', authenticateToken, requireAdmin, async (req, res) =>
   }
 });
 
-// ===== 自動削除処理（2ヶ月経過した写真） =====
-cron.schedule('0 2 * * *', async () => {
-  // 新しい写真削除処理
-  if (process.env.RETENTION_DAYS) {
-    try {
-      const { cleanupOldPhotos } = require('./src/cron/retention');
-      await cleanupOldPhotos();
-      logger.info('新しい写真削除処理が完了しました');
-    } catch (error) {
-      logger.error('新しい写真削除処理エラー:', error);
-    }
-  }
-  
-  // 既存のデータベース写真削除処理（互換性のため保持）
-  try {
-    logger.info('既存の写真削除処理を開始します');
-    
-    const twoMonthsAgo = new Date();
-    twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
-    const cutoffDate = twoMonthsAgo.toISOString().split('T')[0];
-    
-    // 削除対象の写真を取得
-    const [photos] = await pool.execute(
-      'SELECT * FROM photos WHERE DATE(uploaded_at) < ?',
-      [cutoffDate]
-    );
-    
-    // ファイルを削除
-    for (const photo of photos) {
-      try {
-        await fs.unlink(photo.file_path);
-        if (photo.thumbnail_path) {
-          await fs.unlink(photo.thumbnail_path);
-        }
-      } catch (err) {
-        logger.error(`ファイル削除エラー: ${photo.file_path}`, err);
-      }
-    }
-    
-    // データベースから削除
-    await pool.execute(
-      'DELETE FROM photos WHERE DATE(uploaded_at) < ?',
-      [cutoffDate]
-    );
-    
-    // 空のセッションも削除
-    await pool.execute(
-      'DELETE FROM cleaning_sessions WHERE id NOT IN (SELECT DISTINCT cleaning_session_id FROM photos)'
-    );
-    
-    logger.info(`${photos.length}枚の古い写真を削除しました`);
-  } catch (error) {
-    logger.error('既存の削除処理エラー:', error);
-  }
-});
-
 // ===== エラーハンドリング =====
 app.use((err, req, res, next) => {
   logger.error('エラー:', err);
   res.status(500).json({ error: 'サーバーエラーが発生しました' });
 });
-// server.js に追加（authenticateToken を使う）
-app.get('/api/auth/verify', authenticateToken, (req, res) => {
-  res.json({ ok: true, user: req.user });
-});
-
 
 // ===== サーバー起動 =====
 async function startServer() {
   await initializeDatabase();
   
+  // アップロードディレクトリを作成
+  await ensureDir(STORAGE_ROOT);
+  await ensureDir(path.join(STORAGE_ROOT, 'photos'));
+  await ensureDir(path.join(STORAGE_ROOT, 'receipts'));
+  
   app.listen(PORT, () => {
     logger.info(`サーバーが起動しました: http://localhost:${PORT}`);
     logger.info(`環境: ${process.env.NODE_ENV || 'development'}`);
+    logger.info(`ストレージ: ${STORAGE_ROOT}`);
   });
 }
 
