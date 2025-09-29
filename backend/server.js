@@ -173,10 +173,19 @@ app.get('/api/health', (req, res) => {
 
 // ===== 認証関連 =====
 app.post('/api/auth/login', async (req, res) => {
+  let connection;
   try {
     const { email, password } = req.body;
     
-    const [users] = await pool.execute(
+    // 直接接続を作成
+    connection = await mysql.createConnection({
+      host: 'localhost',
+      user: 'root',
+      password: '',
+      database: 'cleaning_system'
+    });
+    
+    const [users] = await connection.execute(
       'SELECT * FROM users WHERE email = ? AND is_active = true',
       [email]
     );
@@ -201,7 +210,7 @@ app.post('/api/auth/login', async (req, res) => {
     // ユーザーに関連する施設を取得
     let facilities = [];
     if (user.role === 'staff') {
-      const [staffFacilities] = await pool.execute(
+      const [staffFacilities] = await connection.execute(
         `SELECT f.* FROM facilities f 
          JOIN staff_facilities sf ON f.id = sf.facility_id 
          WHERE sf.staff_user_id = ?`,
@@ -209,13 +218,13 @@ app.post('/api/auth/login', async (req, res) => {
       );
       facilities = staffFacilities;
     } else if (user.role === 'client') {
-      const [clientFacilities] = await pool.execute(
+      const [clientFacilities] = await connection.execute(
         'SELECT * FROM facilities WHERE client_user_id = ?',
         [user.id]
       );
       facilities = clientFacilities;
     } else if (user.role === 'admin') {
-      const [allFacilities] = await pool.execute('SELECT * FROM facilities');
+      const [allFacilities] = await connection.execute('SELECT * FROM facilities');
       facilities = allFacilities;
     }
     
@@ -226,7 +235,7 @@ app.post('/api/auth/login', async (req, res) => {
         email: user.email,
         name: user.name,
         role: user.role,
-        facilities: facilities.map(f => ({ id: f.id, name: f.name }))
+        facilities: facilities.map(f => f.id)
       }
     });
     
@@ -234,6 +243,10 @@ app.post('/api/auth/login', async (req, res) => {
   } catch (error) {
     logger.error('ログインエラー:', error);
     res.status(500).json({ error: 'サーバーエラーが発生しました' });
+  } finally {
+    if (connection) {
+      await connection.end();
+    }
   }
 });
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Upload, Camera, Calendar, Users, Building, Download, Eye, Trash2, Plus, Check, X, AlertCircle, FileText, Filter, LogOut, Home, Image, Clock, User, Shield, BarChart3, ChevronRight, Search, Settings, Lock, Key } from 'lucide-react';
-
+import { authApi } from './api/client';
 // API設定
 const API_BASE_URL = 'http://localhost:3001/api';
 
@@ -77,6 +77,9 @@ class ApiClient {
 const apiClient = new ApiClient();
 
 // ログイン画面
+// App.js の LoginScreen コンポーネント内
+
+
 const LoginScreen = ({ onLogin }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -84,22 +87,16 @@ const LoginScreen = ({ onLogin }) => {
   const [loading, setLoading] = useState(false);
 
   const handleLogin = async () => {
+    setError('');
+    setLoading(true);
+    
     try {
-      setError('');
-      setLoading(true);
-      const response = await apiClient.post('/auth/login', { email, password });
-      apiClient.setToken(response.token);
+      const response = await authApi.login(email, password);
       onLogin(response.user);
-    } catch (error) {
-      setError(error.message);
+    } catch (err) {
+      setError(err.message || 'ログインに失敗しました');
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleKeyPress = (e) => {
-    if (e.key === 'Enter') {
-      handleLogin();
     }
   };
 
@@ -121,7 +118,6 @@ const LoginScreen = ({ onLogin }) => {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              onKeyPress={handleKeyPress}
               placeholder="example@email.com"
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               disabled={loading}
@@ -134,8 +130,8 @@ const LoginScreen = ({ onLogin }) => {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              onKeyPress={handleKeyPress}
               placeholder="••••••••"
+              onKeyPress={(e) => e.key === 'Enter' && handleLogin()}
               className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               disabled={loading}
             />
@@ -150,14 +146,19 @@ const LoginScreen = ({ onLogin }) => {
           <button
             onClick={handleLogin}
             disabled={loading}
-            className="w-full bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:opacity-50"
           >
             {loading ? 'ログイン中...' : 'ログイン'}
           </button>
         </div>
 
         <div className="mt-6 pt-6 border-t border-gray-200">
-          <p className="text-sm text-gray-600 text-center">デモ用：初回起動時はデータベース初期化が必要です</p>
+          <p className="text-sm text-gray-600 text-center">デモ用アカウント:</p>
+          <div className="mt-2 space-y-1 text-xs text-gray-500">
+            <p>スタッフ: staff1@cleaning.com / staff123</p>
+            <p>クライアント: client1@example.com / client123</p>
+            <p>管理者: admin@cleaning.com / admin123</p>
+          </div>
         </div>
       </div>
     </div>

@@ -1,6 +1,4 @@
-// backend/scripts/initDatabase.js
-// データベース初期化スクリプト（改善版）
-
+// ===== scripts/initDatabase.js =====
 const mysql = require('mysql2/promise');
 const bcrypt = require('bcrypt');
 const fs = require('fs').promises;
@@ -20,20 +18,18 @@ async function initDatabase() {
     
     console.log('MySQLに接続しました');
     
-    // データベース作成
-    await connection.execute(
+    // データベース作成（query を使用）
+    await connection.query(
       'CREATE DATABASE IF NOT EXISTS cleaning_system CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci'
     );
     console.log('データベースを作成しました');
     
-    // データベース選択
-    await connection.execute('USE cleaning_system');
+    // データベース選択（query を使用）
+    await connection.query('USE cleaning_system');
+    console.log('データベースを選択しました');
     
     // テーブル作成
-    console.log('テーブルを作成中...');
-    
-    // ユーザーテーブル
-    await connection.execute(`
+    await connection.query(`
       CREATE TABLE IF NOT EXISTS users (
         id INT PRIMARY KEY AUTO_INCREMENT,
         email VARCHAR(190) NOT NULL UNIQUE,
@@ -44,9 +40,9 @@ async function initDatabase() {
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
       ) ENGINE=InnoDB
     `);
+    console.log('usersテーブルを作成しました');
     
-    // 施設テーブル
-    await connection.execute(`
+    await connection.query(`
       CREATE TABLE IF NOT EXISTS facilities (
         id INT PRIMARY KEY AUTO_INCREMENT,
         name VARCHAR(150) NOT NULL,
@@ -57,9 +53,9 @@ async function initDatabase() {
           ON DELETE SET NULL ON UPDATE CASCADE
       ) ENGINE=InnoDB
     `);
+    console.log('facilitiesテーブルを作成しました');
     
-    // スタッフと施設の割当（多対多）
-    await connection.execute(`
+    await connection.query(`
       CREATE TABLE IF NOT EXISTS staff_facilities (
         staff_user_id INT NOT NULL,
         facility_id INT NOT NULL,
@@ -70,9 +66,9 @@ async function initDatabase() {
           ON DELETE CASCADE ON UPDATE CASCADE
       ) ENGINE=InnoDB
     `);
+    console.log('staff_facilitiesテーブルを作成しました');
     
-    // 清掃セッション
-    await connection.execute(`
+    await connection.query(`
       CREATE TABLE IF NOT EXISTS cleaning_sessions (
         id INT PRIMARY KEY AUTO_INCREMENT,
         facility_id INT NOT NULL,
@@ -88,9 +84,9 @@ async function initDatabase() {
         INDEX idx_cs_fac_date (facility_id, cleaning_date)
       ) ENGINE=InnoDB
     `);
+    console.log('cleaning_sessionsテーブルを作成しました');
     
-    // 写真
-    await connection.execute(`
+    await connection.query(`
       CREATE TABLE IF NOT EXISTS photos (
         id INT PRIMARY KEY AUTO_INCREMENT,
         cleaning_session_id INT NOT NULL,
@@ -105,135 +101,40 @@ async function initDatabase() {
         INDEX idx_ph_session (cleaning_session_id)
       ) ENGINE=InnoDB
     `);
+    console.log('photosテーブルを作成しました');
     
-    console.log('テーブル作成完了');
+    // 初期ユーザーのパスワードをハッシュ化
+    const adminPassword = await bcrypt.hash('admin123', 10);
+    const staffPassword = await bcrypt.hash('staff123', 10);
+    const clientPassword = await bcrypt.hash('client123', 10);
     
-    // 初期データの確認
-    const [existingUsers] = await connection.execute('SELECT COUNT(*) as count FROM users');
+    // 初期データ投入（execute は使える）
+    console.log('初期ユーザーを作成中...');
     
-    if (existingUsers[0].count > 0) {
-      console.log('既存のデータが存在するため、初期データの投入をスキップします');
-    } else {
-      console.log('初期データを投入中...');
-      
-      // パスワードのハッシュ化
-      const defaultPassword = await bcrypt.hash('password123', 10);
-      
-      // 管理者ユーザー
-      const [adminResult] = await connection.execute(
-        'INSERT INTO users (email, password_hash, name, role) VALUES (?, ?, ?, ?)',
-        ['admin@cleaning.com', defaultPassword, 'システム管理者', 'admin']
-      );
-      const adminId = adminResult.insertId;
-      
-      // クライアントユーザー
-      const [client1Result] = await connection.execute(
-        'INSERT INTO users (email, password_hash, name, role) VALUES (?, ?, ?, ?)',
-        ['client1@example.com', defaultPassword, '株式会社サンプル', 'client']
-      );
-      const client1Id = client1Result.insertId;
-      
-      const [client2Result] = await connection.execute(
-        'INSERT INTO users (email, password_hash, name, role) VALUES (?, ?, ?, ?)',
-        ['client2@example.com', defaultPassword, '株式会社テスト', 'client']
-      );
-      const client2Id = client2Result.insertId;
-      
-      // スタッフユーザー
-      const [staff1Result] = await connection.execute(
-        'INSERT INTO users (email, password_hash, name, role) VALUES (?, ?, ?, ?)',
-        ['staff1@cleaning.com', defaultPassword, '山田太郎', 'staff']
-      );
-      const staff1Id = staff1Result.insertId;
-      
-      const [staff2Result] = await connection.execute(
-        'INSERT INTO users (email, password_hash, name, role) VALUES (?, ?, ?, ?)',
-        ['staff2@cleaning.com', defaultPassword, '佐藤花子', 'staff']
-      );
-      const staff2Id = staff2Result.insertId;
-      
-      // 施設データ
-      const [facility1Result] = await connection.execute(
-        'INSERT INTO facilities (name, address, client_user_id) VALUES (?, ?, ?)',
-        ['サンプルビル 3F', '東京都千代田区1-1-1', client1Id]
-      );
-      const facility1Id = facility1Result.insertId;
-      
-      const [facility2Result] = await connection.execute(
-        'INSERT INTO facilities (name, address, client_user_id) VALUES (?, ?, ?)',
-        ['サンプルオフィス', '東京都港区2-2-2', client1Id]
-      );
-      const facility2Id = facility2Result.insertId;
-      
-      const [facility3Result] = await connection.execute(
-        'INSERT INTO facilities (name, address, client_user_id) VALUES (?, ?, ?)',
-        ['テストセンター', '東京都渋谷区3-3-3', client2Id]
-      );
-      const facility3Id = facility3Result.insertId;
-      
-      // スタッフと施設の割り当て
-      await connection.execute(
-        'INSERT INTO staff_facilities (staff_user_id, facility_id) VALUES (?, ?)',
-        [staff1Id, facility1Id]
-      );
-      
-      await connection.execute(
-        'INSERT INTO staff_facilities (staff_user_id, facility_id) VALUES (?, ?)',
-        [staff1Id, facility2Id]
-      );
-      
-      await connection.execute(
-        'INSERT INTO staff_facilities (staff_user_id, facility_id) VALUES (?, ?)',
-        [staff2Id, facility2Id]
-      );
-      
-      await connection.execute(
-        'INSERT INTO staff_facilities (staff_user_id, facility_id) VALUES (?, ?)',
-        [staff2Id, facility3Id]
-      );
-      
-      console.log('初期データ投入完了');
-      
-      console.log('\n=====================================');
-      console.log('初期ログイン情報');
-      console.log('=====================================');
-      console.log('【管理者】');
-      console.log('  メール: admin@cleaning.com');
-      console.log('  パスワード: password123');
-      console.log('');
-      console.log('【クライアント】');
-      console.log('  メール: client1@example.com');
-      console.log('  パスワード: password123');
-      console.log('');
-      console.log('  メール: client2@example.com');
-      console.log('  パスワード: password123');
-      console.log('');
-      console.log('【スタッフ】');
-      console.log('  メール: staff1@cleaning.com');
-      console.log('  パスワード: password123');
-      console.log('');
-      console.log('  メール: staff2@cleaning.com');
-      console.log('  パスワード: password123');
-      console.log('=====================================\n');
-    }
+    // 管理者
+    await connection.execute(
+      'INSERT IGNORE INTO users (email, password_hash, name, role) VALUES (?, ?, ?, ?)',
+      ['admin@cleaning.com', adminPassword, '管理者', 'admin']
+    );
     
-    // アップロードディレクトリの作成
-    const uploadsDir = path.join(__dirname, '..', process.env.STORAGE_ROOT || 'uploads_dev');
-    const photosDir = path.join(uploadsDir, 'photos');
-    const receiptsDir = path.join(uploadsDir, 'receipts');
+    // クライアント
+    await connection.execute(
+      'INSERT IGNORE INTO users (email, password_hash, name, role) VALUES (?, ?, ?, ?)',
+      ['client1@example.com', clientPassword, '株式会社サンプル', 'client']
+    );
     
-    try {
-      await fs.mkdir(uploadsDir, { recursive: true });
-      await fs.mkdir(photosDir, { recursive: true });
-      await fs.mkdir(receiptsDir, { recursive: true });
-      console.log('アップロードディレクトリを作成しました:', uploadsDir);
-    } catch (error) {
-      if (error.code !== 'EEXIST') {
-        throw error;
-      }
-    }
+    // スタッフ
+    await connection.execute(
+      'INSERT IGNORE INTO users (email, password_hash, name, role) VALUES (?, ?, ?, ?)',
+      ['staff1@cleaning.com', staffPassword, '山田太郎', 'staff']
+    );
     
-    console.log('\n✅ データベース初期化が完了しました！');
+    console.log('✅ 初期データを投入しました');
+    console.log('\n===== ログイン情報 =====');
+    console.log('管理者: admin@cleaning.com / admin123');
+    console.log('クライアント: client1@example.com / client123');
+    console.log('スタッフ: staff1@cleaning.com / staff123');
+    console.log('========================\n');
     
   } catch (error) {
     console.error('❌ データベース初期化エラー:', error);
@@ -241,7 +142,6 @@ async function initDatabase() {
   } finally {
     if (connection) {
       await connection.end();
-      console.log('データベース接続を閉じました');
     }
   }
 }
