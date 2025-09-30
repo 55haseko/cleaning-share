@@ -15,7 +15,7 @@ require('dotenv').config();
 
 // ===== 設定 =====
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 4001;
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this';
 
 // 新しいストレージ設定
@@ -90,16 +90,16 @@ async function ensureDir(dirPath) {
   }
 }
 
-// ===== Multer設定（改善版） =====
+// ===== Multer設定（仕様準拠版） =====
 const storage = multer.diskStorage({
   destination: async function (req, file, cb) {
-    const { facilityId, type } = req.body;
-    const date = new Date().toISOString().split('T')[0];
-    const photoType = type || 'general';
-    
-    // ディレクトリ構造: uploads_dev/photos/{facility_id}/{YYYY-MM-DD}/{before|after}/
-    const uploadPath = path.join(STORAGE_ROOT, 'photos', facilityId.toString(), date, photoType);
-    
+    const { facilityId, date: cleaningDate } = req.body;
+    const targetDate = cleaningDate || new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    const yearMonth = targetDate.substring(0, 7); // YYYY-MM
+
+    // 仕様通りのディレクトリ構造: uploads_dev/photos/{facility_id}/{YYYY-MM}/{YYYY-MM-DD}/
+    const uploadPath = path.join(STORAGE_ROOT, 'photos', facilityId.toString(), yearMonth, targetDate);
+
     try {
       await ensureDir(uploadPath);
       cb(null, uploadPath);
@@ -108,9 +108,14 @@ const storage = multer.diskStorage({
     }
   },
   filename: function (req, file, cb) {
-    const timestamp = Date.now();
-    const ext = path.extname(file.originalname);
-    const filename = `${timestamp}-${Math.random().toString(36).substring(7)}${ext}`;
+    const { facilityId, date: cleaningDate, type } = req.body;
+    const targetDate = cleaningDate || new Date().toISOString().split('T')[0];
+    const dateFormatted = targetDate.replace(/-/g, ''); // YYYYMMDD
+    const uuid = require('crypto').randomUUID().substring(0, 8);
+    const ext = path.extname(file.originalname).toLowerCase();
+
+    // 仕様通りのファイル命名: fac-{id}_{YYYYMMDD}_{type}_{uuid}.{ext}
+    const filename = `fac-${facilityId}_${dateFormatted}_${type || 'before'}_${uuid}${ext}`;
     cb(null, filename);
   }
 });
@@ -140,10 +145,21 @@ const authenticateToken = async (req, res, next) => {
   
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
-    const [users] = await pool.execute(
+
+    // 直接接続を作成
+    const connection = await mysql.createConnection({
+      host: process.env.DB_HOST || 'localhost',
+      user: process.env.DB_USER || 'cleaning_user',
+      password: process.env.DB_PASSWORD || 'strongpassword',
+      database: process.env.DB_NAME || 'cleaning_system'
+    });
+
+    const [users] = await connection.execute(
       'SELECT id, email, name, role FROM users WHERE id = ? AND is_active = true',
       [decoded.userId]
     );
+
+    await connection.end();
     
     if (users.length === 0) {
       return res.status(403).json({ error: 'ユーザーが見つかりません' });
@@ -177,12 +193,12 @@ app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
     
-    // 直接接続を作成
+    // 直接接続を作成（環境変数を使用）
     connection = await mysql.createConnection({
-      host: 'localhost',
-      user: 'root',
-      password: '',
-      database: 'cleaning_system'
+      host: process.env.DB_HOST || 'localhost',
+      user: process.env.DB_USER || 'cleaning_user',
+      password: process.env.DB_PASSWORD || 'strongpassword',
+      database: process.env.DB_NAME || 'cleaning_system'
     });
     
     const [users] = await connection.execute(
@@ -247,6 +263,65 @@ app.post('/api/auth/login', async (req, res) => {
     if (connection) {
       await connection.end();
     }
+  }
+});
+
+// 現在のユーザー情報取得
+app.get('/api/auth/me', authenticateToken, async (req, res) => {
+  try {
+    const connection = await mysql.createConnection({
+      host: process.env.DB_HOST || 'localhost',
+      user: process.env.DB_USER || 'cleaning_user',
+      password: process.env.DB_PASSWORD || 'strongpassword',
+      database: process.env.DB_NAME || 'cleaning_system'
+    });
+
+    const [users] = await connection.execute(
+      'SELECT id, email, name, role FROM users WHERE id = ? AND is_active = true',
+      [req.user.userId]
+    );
+
+    if (users.length === 0) {
+      return res.status(404).json({ error: 'ユーザーが見つかりません' });
+    }
+
+    const user = users[0];
+
+    // ユーザーに関連する施設を取得
+    let facilities = [];
+    if (user.role === 'staff') {
+      const [staffFacilities] = await connection.execute(
+        `SELECT f.* FROM facilities f
+         JOIN staff_facilities sf ON f.id = sf.facility_id
+         WHERE sf.staff_user_id = ?`,
+        [user.id]
+      );
+      facilities = staffFacilities;
+    } else if (user.role === 'client') {
+      const [clientFacilities] = await connection.execute(
+        'SELECT * FROM facilities WHERE client_user_id = ?',
+        [user.id]
+      );
+      facilities = clientFacilities;
+    } else if (user.role === 'admin') {
+      const [allFacilities] = await connection.execute('SELECT * FROM facilities');
+      facilities = allFacilities;
+    }
+
+    res.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        facilities: facilities.map(f => f.id)
+      }
+    });
+
+    await connection.end();
+  } catch (error) {
+    logger.error('ユーザー情報取得エラー:', error);
+    res.status(500).json({ error: 'サーバーエラーが発生しました' });
   }
 });
 
@@ -579,6 +654,42 @@ app.post('/api/photos/upload', authenticateToken, upload.array('photos', 20), as
   } catch (error) {
     logger.error('写真アップロードエラー:', error);
     res.status(500).json({ error: 'アップロードに失敗しました' });
+  }
+});
+
+// ===== テスト用アップロード（認証なし） =====
+app.post('/api/photos/upload-test', upload.array('photos', 20), async (req, res) => {
+  try {
+    const { facilityId, type, date } = req.body;
+    const uploadedFiles = [];
+
+    logger.info(`テストアップロード開始: facilityId=${facilityId}, type=${type}, date=${date}, files=${req.files?.length || 0}`);
+
+    // 各ファイルを処理（DBなし版）
+    for (const file of req.files) {
+      // 相対パスを生成
+      const relativePath = path.relative(STORAGE_ROOT, file.path);
+
+      uploadedFiles.push({
+        filename: file.filename,
+        type: type,
+        size: file.size,
+        path: file.path,
+        url: `/uploads/${relativePath.replace(/\\/g, '/')}`
+      });
+
+      logger.info(`ファイル保存: ${file.path}`);
+    }
+
+    res.json({
+      success: true,
+      message: `${uploadedFiles.length}枚の写真をテストアップロードしました`,
+      files: uploadedFiles
+    });
+
+  } catch (error) {
+    logger.error('テストアップロードエラー:', error);
+    res.status(500).json({ error: 'テストアップロードに失敗しました', details: error.message });
   }
 });
 

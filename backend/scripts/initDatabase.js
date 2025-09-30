@@ -1,4 +1,5 @@
 // ===== scripts/initDatabase.js =====
+// データベース初期化スクリプト
 const mysql = require('mysql2/promise');
 const bcrypt = require('bcrypt');
 const fs = require('fs').promises;
@@ -16,101 +17,41 @@ async function initDatabase() {
       password: process.env.DB_PASSWORD || ''
     });
     
-    console.log('MySQLに接続しました');
+    console.log('データベースに接続しました');
     
-    // データベース作成（query を使用）
-    await connection.query(
+    // データベース作成
+    await connection.execute(
       'CREATE DATABASE IF NOT EXISTS cleaning_system CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci'
     );
     console.log('データベースを作成しました');
     
-    // データベース選択（query を使用）
-    await connection.query('USE cleaning_system');
-    console.log('データベースを選択しました');
+    // データベース選択
+    await connection.execute('USE cleaning_system');
     
-    // テーブル作成
-    await connection.query(`
-      CREATE TABLE IF NOT EXISTS users (
-        id INT PRIMARY KEY AUTO_INCREMENT,
-        email VARCHAR(190) NOT NULL UNIQUE,
-        password_hash VARCHAR(255) NOT NULL,
-        name VARCHAR(100) NOT NULL,
-        role ENUM('staff','client','admin') NOT NULL DEFAULT 'staff',
-        is_active BOOLEAN NOT NULL DEFAULT TRUE,
-        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-      ) ENGINE=InnoDB
-    `);
-    console.log('usersテーブルを作成しました');
+    // スキーマファイルを読み込む
+    const schemaPath = path.join(__dirname, '../database_schema.sql');
+    const schema = await fs.readFile(schemaPath, 'utf8');
     
-    await connection.query(`
-      CREATE TABLE IF NOT EXISTS facilities (
-        id INT PRIMARY KEY AUTO_INCREMENT,
-        name VARCHAR(150) NOT NULL,
-        address VARCHAR(255),
-        client_user_id INT,
-        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        CONSTRAINT fk_fac_client FOREIGN KEY (client_user_id) REFERENCES users(id)
-          ON DELETE SET NULL ON UPDATE CASCADE
-      ) ENGINE=InnoDB
-    `);
-    console.log('facilitiesテーブルを作成しました');
+    // SQLを個別のステートメントに分割
+    const statements = schema
+      .split(';')
+      .filter(stmt => stmt.trim().length > 0)
+      .map(stmt => stmt.trim() + ';');
     
-    await connection.query(`
-      CREATE TABLE IF NOT EXISTS staff_facilities (
-        staff_user_id INT NOT NULL,
-        facility_id INT NOT NULL,
-        PRIMARY KEY (staff_user_id, facility_id),
-        CONSTRAINT fk_sf_staff FOREIGN KEY (staff_user_id) REFERENCES users(id)
-          ON DELETE CASCADE ON UPDATE CASCADE,
-        CONSTRAINT fk_sf_fac FOREIGN KEY (facility_id) REFERENCES facilities(id)
-          ON DELETE CASCADE ON UPDATE CASCADE
-      ) ENGINE=InnoDB
-    `);
-    console.log('staff_facilitiesテーブルを作成しました');
-    
-    await connection.query(`
-      CREATE TABLE IF NOT EXISTS cleaning_sessions (
-        id INT PRIMARY KEY AUTO_INCREMENT,
-        facility_id INT NOT NULL,
-        cleaning_date DATE NOT NULL DEFAULT (CURRENT_DATE),
-        staff_user_id INT,
-        ventilation_checked BOOLEAN NOT NULL DEFAULT FALSE,
-        air_filter_checked BOOLEAN NOT NULL DEFAULT FALSE,
-        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        CONSTRAINT fk_cs_fac FOREIGN KEY (facility_id) REFERENCES facilities(id)
-          ON DELETE CASCADE ON UPDATE CASCADE,
-        CONSTRAINT fk_cs_staff FOREIGN KEY (staff_user_id) REFERENCES users(id)
-          ON DELETE SET NULL ON UPDATE CASCADE,
-        INDEX idx_cs_fac_date (facility_id, cleaning_date)
-      ) ENGINE=InnoDB
-    `);
-    console.log('cleaning_sessionsテーブルを作成しました');
-    
-    await connection.query(`
-      CREATE TABLE IF NOT EXISTS photos (
-        id INT PRIMARY KEY AUTO_INCREMENT,
-        cleaning_session_id INT NOT NULL,
-        file_path VARCHAR(500) NOT NULL,
-        thumbnail_path VARCHAR(500),
-        type ENUM('before','after','general') NOT NULL DEFAULT 'general',
-        file_size INT,
-        original_name VARCHAR(255),
-        uploaded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        CONSTRAINT fk_ph_session FOREIGN KEY (cleaning_session_id) REFERENCES cleaning_sessions(id)
-          ON DELETE CASCADE ON UPDATE CASCADE,
-        INDEX idx_ph_session (cleaning_session_id)
-      ) ENGINE=InnoDB
-    `);
-    console.log('photosテーブルを作成しました');
+    // 各ステートメントを実行
+    for (const statement of statements) {
+      if (statement.includes('CREATE TABLE') || statement.includes('CREATE DATABASE')) {
+        await connection.execute(statement);
+        console.log('実行完了:', statement.substring(0, 50) + '...');
+      }
+    }
     
     // 初期ユーザーのパスワードをハッシュ化
     const adminPassword = await bcrypt.hash('admin123', 10);
     const staffPassword = await bcrypt.hash('staff123', 10);
     const clientPassword = await bcrypt.hash('client123', 10);
     
-    // 初期データ投入（execute は使える）
-    console.log('初期ユーザーを作成中...');
-    
+    // 初期データ投入
     // 管理者
     await connection.execute(
       'INSERT IGNORE INTO users (email, password_hash, name, role) VALUES (?, ?, ?, ?)',
@@ -129,7 +70,7 @@ async function initDatabase() {
       ['staff1@cleaning.com', staffPassword, '山田太郎', 'staff']
     );
     
-    console.log('✅ 初期データを投入しました');
+    console.log('初期データを投入しました');
     console.log('\n===== ログイン情報 =====');
     console.log('管理者: admin@cleaning.com / admin123');
     console.log('クライアント: client1@example.com / client123');
@@ -137,7 +78,7 @@ async function initDatabase() {
     console.log('========================\n');
     
   } catch (error) {
-    console.error('❌ データベース初期化エラー:', error);
+    console.error('データベース初期化エラー:', error);
     process.exit(1);
   } finally {
     if (connection) {
@@ -148,3 +89,88 @@ async function initDatabase() {
 
 // 実行
 initDatabase();
+
+// ===== scripts/cleanupOldPhotos.js =====
+// 古い写真を削除するスクリプト（手動実行用）
+const mysql = require('mysql2/promise');
+const fs = require('fs').promises;
+const path = require('path');
+require('dotenv').config();
+
+async function cleanupOldPhotos() {
+  let connection;
+  
+  try {
+    connection = await mysql.createConnection({
+      host: process.env.DB_HOST || 'localhost',
+      user: process.env.DB_USER || 'root',
+      password: process.env.DB_PASSWORD || '',
+      database: process.env.DB_NAME || 'cleaning_system'
+    });
+    
+    // 2ヶ月前の日付を計算
+    const twoMonthsAgo = new Date();
+    twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
+    const cutoffDate = twoMonthsAgo.toISOString().split('T')[0];
+    
+    console.log(`${cutoffDate}以前の写真を削除します`);
+    
+    // 削除対象の写真を取得
+    const [photos] = await connection.execute(
+      'SELECT * FROM photos WHERE DATE(uploaded_at) < ?',
+      [cutoffDate]
+    );
+    
+    console.log(`削除対象: ${photos.length}枚`);
+    
+    // ファイルを削除
+    let deletedCount = 0;
+    for (const photo of photos) {
+      try {
+        await fs.unlink(photo.file_path);
+        if (photo.thumbnail_path) {
+          await fs.unlink(photo.thumbnail_path);
+        }
+        deletedCount++;
+      } catch (err) {
+        console.error(`ファイル削除エラー: ${photo.file_path}`, err.message);
+      }
+    }
+    
+    // データベースから削除
+    await connection.execute(
+      'DELETE FROM photos WHERE DATE(uploaded_at) < ?',
+      [cutoffDate]
+    );
+    
+    // 空のセッションも削除
+    const [deletedSessions] = await connection.execute(
+      'DELETE FROM cleaning_sessions WHERE id NOT IN (SELECT DISTINCT cleaning_session_id FROM photos)'
+    );
+    
+    console.log(`完了: ${deletedCount}個のファイルを削除しました`);
+    console.log(`空のセッション${deletedSessions.affectedRows}件を削除しました`);
+    
+    // 古いフォルダも削除
+    const uploadDir = process.env.UPLOAD_DIR || '/var/www/cleaning-app/uploads';
+    const twoMonthsAgoYM = `${twoMonthsAgo.getFullYear()}-${String(twoMonthsAgo.getMonth() + 1).padStart(2, '0')}`;
+    
+    try {
+      const oldDir = path.join(uploadDir, twoMonthsAgoYM);
+      await fs.rmdir(oldDir, { recursive: true });
+      console.log(`古いフォルダを削除: ${oldDir}`);
+    } catch (err) {
+      console.log('古いフォルダが見つかりません');
+    }
+    
+  } catch (error) {
+    console.error('クリーンアップエラー:', error);
+  } finally {
+    if (connection) {
+      await connection.end();
+    }
+  }
+}
+
+// 実行
+cleanupOldPhotos();
