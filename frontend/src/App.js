@@ -2,6 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Upload, Camera, Calendar, Users, Building, Download, Eye, Trash2, Plus, Check, X, AlertCircle, FileText, Filter, LogOut, Home, Image, Clock, User, Shield, BarChart3, ChevronRight, Search, Settings } from 'lucide-react';
 import { authApi } from './api/auth.js';
 import { photosApi } from './api/photos.js';
+import AdminDashboard from './components/AdminDashboard.js';
+import FacilitySelector from './components/FacilitySelector.js';
+import PhotoSelector from './components/PhotoSelector.js';
+import MonthlyCheckDashboard from './components/MonthlyCheckDashboard.js';
 
 // モックデータ
 const mockUsers = [
@@ -13,9 +17,18 @@ const mockUsers = [
 ];
 
 const mockFacilities = [
-  { id: 1, name: 'ABCビル 3F', client: '株式会社ABC', address: '東京都千代田区1-1-1' },
-  { id: 2, name: 'XYZオフィス', client: '株式会社XYZ', address: '東京都港区2-2-2' },
-  { id: 3, name: '渋谷センター', client: '株式会社DEF', address: '東京都渋谷区3-3-3' }
+  { id: 1, name: 'ABCビル 3F', client: '株式会社ABC', address: '東京都千代田区丸の内1-1-1', lastCleaning: '2025-01-07' },
+  { id: 2, name: 'XYZオフィス', client: '株式会社XYZ', address: '東京都港区赤坂2-2-2', lastCleaning: '2025-01-06' },
+  { id: 3, name: '渋谷センター', client: '株式会社DEF', address: '東京都渋谷区神南3-3-3', lastCleaning: '2025-01-05' },
+  { id: 4, name: '新宿タワー 15F', client: '株式会社ABC', address: '東京都新宿区西新宿1-4-4', lastCleaning: '2025-01-04' },
+  { id: 5, name: '品川イーストビル 8F', client: '有限会社HIJ', address: '東京都品川区東品川5-5-5', lastCleaning: '2025-01-03' },
+  { id: 6, name: 'みなとみらいプラザ 20F', client: '株式会社XYZ', address: '神奈川県横浜市西区みなとみらい6-6-6', lastCleaning: '2025-01-02' },
+  { id: 7, name: '大阪本社ビル 12F', client: '関西商事株式会社', address: '大阪府大阪市北区梅田7-7-7', lastCleaning: '2025-01-01' },
+  { id: 8, name: '札幌支店', client: '北海道開発株式会社', address: '北海道札幌市中央区大通8-8-8', lastCleaning: '2024-12-31' },
+  { id: 9, name: '福岡オフィス', client: '九州エンタープライズ', address: '福岡県福岡市博多区博多駅前9-9-9', lastCleaning: '2024-12-30' },
+  { id: 10, name: 'ABCビル 5F', client: '株式会社ABC', address: '東京都千代田区丸の内1-1-1', lastCleaning: '2024-12-29' },
+  { id: 11, name: 'ABCビル 7F', client: '株式会社ABC', address: '東京都千代田区丸の内1-1-1', lastCleaning: '2024-12-28' },
+  { id: 12, name: '名古屋センタービル', client: '中部物産株式会社', address: '愛知県名古屋市中区栄12-12-12', lastCleaning: '2024-12-27' }
 ];
 
 const mockAlbums = [
@@ -270,27 +283,11 @@ const StaffDashboard = ({ user, onLogout }) => {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {!selectedFacility ? (
-          <div className="bg-white rounded-xl shadow-sm p-6">
-            <h2 className="text-lg font-bold text-gray-900 mb-4">施設を選択</h2>
-            <div className="grid gap-3">
-              {userFacilities.map(facility => (
-                <button
-                  key={facility.id}
-                  onClick={() => setSelectedFacility(facility)}
-                  className="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-                >
-                  <div className="flex items-center gap-3">
-                    <Building className="w-5 h-5 text-gray-400" />
-                    <div className="text-left">
-                      <p className="font-medium text-gray-900">{facility.name}</p>
-                      <p className="text-sm text-gray-600">{facility.address}</p>
-                    </div>
-                  </div>
-                  <ChevronRight className="w-5 h-5 text-gray-400" />
-                </button>
-              ))}
-            </div>
-          </div>
+          <FacilitySelector
+            facilities={userFacilities}
+            onSelect={setSelectedFacility}
+            title="清掃する施設を選択"
+          />
         ) : (
           <div className="space-y-6">
             <div className="bg-white rounded-xl shadow-sm p-6">
@@ -472,27 +469,11 @@ const ClientDashboard = ({ user, onLogout }) => {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {!selectedFacility ? (
-          <div className="bg-white rounded-xl shadow-sm p-6">
-            <h2 className="text-lg font-bold text-gray-900 mb-4">施設を選択</h2>
-            <div className="grid gap-3">
-              {clientFacilities.map(facility => (
-                <button
-                  key={facility.id}
-                  onClick={() => setSelectedFacility(facility)}
-                  className="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
-                >
-                  <div className="flex items-center gap-3">
-                    <Building className="w-5 h-5 text-gray-400" />
-                    <div className="text-left">
-                      <p className="font-medium text-gray-900">{facility.name}</p>
-                      <p className="text-sm text-gray-600">{facility.address}</p>
-                    </div>
-                  </div>
-                  <ChevronRight className="w-5 h-5 text-gray-400" />
-                </button>
-              ))}
-            </div>
-          </div>
+          <FacilitySelector
+            facilities={clientFacilities}
+            onSelect={setSelectedFacility}
+            title="閲覧する施設を選択"
+          />
         ) : !selectedAlbum ? (
           <div className="bg-white rounded-xl shadow-sm p-6">
             <div className="flex items-center justify-between mb-6">
@@ -629,290 +610,7 @@ const ClientDashboard = ({ user, onLogout }) => {
   );
 };
 
-// 管理者画面
-const AdminDashboard = ({ onLogout }) => {
-  const [activeTab, setActiveTab] = useState('overview');
-  const [showUserModal, setShowUserModal] = useState(false);
-  const [users, setUsers] = useState(mockUsers);
-
-  const todayStats = {
-    uploads: 12,
-    facilities: 8,
-    photos: 156,
-    failures: 2
-  };
-
-  return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-purple-600 rounded-full flex items-center justify-center">
-                <Shield className="w-5 h-5 text-white" />
-              </div>
-              <div>
-                <h1 className="text-xl font-bold text-gray-900">管理者ダッシュボード</h1>
-                <p className="text-sm text-gray-600">システム管理</p>
-              </div>
-            </div>
-            <button
-              onClick={onLogout}
-              className="flex items-center gap-2 px-4 py-2 text-gray-600 hover:text-gray-900"
-            >
-              <LogOut className="w-4 h-4" />
-              ログアウト
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="bg-white rounded-xl shadow-sm mb-6">
-          <div className="border-b border-gray-200">
-            <nav className="flex space-x-8 px-6" aria-label="Tabs">
-              <button
-                onClick={() => setActiveTab('overview')}
-                className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                  activeTab === 'overview'
-                    ? 'border-purple-500 text-purple-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                概要
-              </button>
-              <button
-                onClick={() => setActiveTab('facilities')}
-                className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                  activeTab === 'facilities'
-                    ? 'border-purple-500 text-purple-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                施設管理
-              </button>
-              <button
-                onClick={() => setActiveTab('users')}
-                className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                  activeTab === 'users'
-                    ? 'border-purple-500 text-purple-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                ユーザー管理
-              </button>
-              <button
-                onClick={() => setActiveTab('reports')}
-                className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                  activeTab === 'reports'
-                    ? 'border-purple-500 text-purple-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
-                }`}
-              >
-                レポート
-              </button>
-            </nav>
-          </div>
-
-          <div className="p-6">
-            {activeTab === 'overview' && (
-              <div>
-                <h2 className="text-lg font-bold text-gray-900 mb-6">今日の活動状況</h2>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-                  <div className="bg-blue-50 rounded-lg p-4">
-                    <div className="flex items-center gap-3">
-                      <Upload className="w-8 h-8 text-blue-600" />
-                      <div>
-                        <p className="text-2xl font-bold text-gray-900">{todayStats.uploads}</p>
-                        <p className="text-sm text-gray-600">アップロード</p>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="bg-green-50 rounded-lg p-4">
-                    <div className="flex items-center gap-3">
-                      <Building className="w-8 h-8 text-green-600" />
-                      <div>
-                        <p className="text-2xl font-bold text-gray-900">{todayStats.facilities}</p>
-                        <p className="text-sm text-gray-600">施設</p>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="bg-purple-50 rounded-lg p-4">
-                    <div className="flex items-center gap-3">
-                      <Image className="w-8 h-8 text-purple-600" />
-                      <div>
-                        <p className="text-2xl font-bold text-gray-900">{todayStats.photos}</p>
-                        <p className="text-sm text-gray-600">写真</p>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="bg-red-50 rounded-lg p-4">
-                    <div className="flex items-center gap-3">
-                      <AlertCircle className="w-8 h-8 text-red-600" />
-                      <div>
-                        <p className="text-2xl font-bold text-gray-900">{todayStats.failures}</p>
-                        <p className="text-sm text-gray-600">失敗</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <h3 className="font-medium text-gray-900 mb-3">最近のアップロード</h3>
-                <div className="space-y-2">
-                  {mockAlbums.slice(0, 3).map(album => {
-                    const facility = mockFacilities.find(f => f.id === album.facilityId);
-                    return (
-                      <div key={album.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                        <div className="flex items-center gap-3">
-                          <Calendar className="w-4 h-4 text-gray-400" />
-                          <div>
-                            <p className="font-medium text-gray-900">{facility?.name}</p>
-                            <p className="text-sm text-gray-600">
-                              {album.date} - {album.uploadedBy}
-                            </p>
-                          </div>
-                        </div>
-                        <span className="text-sm text-gray-600">{album.photos.length}枚</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {activeTab === 'facilities' && (
-              <div>
-                <div className="flex justify-between items-center mb-6">
-                  <h2 className="text-lg font-bold text-gray-900">施設一覧</h2>
-                  <button className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700">
-                    <Plus className="w-4 h-4" />
-                    施設を追加
-                  </button>
-                </div>
-                <div className="space-y-3">
-                  {mockFacilities.map(facility => (
-                    <div key={facility.id} className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
-                      <div>
-                        <p className="font-medium text-gray-900">{facility.name}</p>
-                        <p className="text-sm text-gray-600">{facility.client} - {facility.address}</p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button className="p-2 text-gray-600 hover:text-gray-900">
-                          <Settings className="w-4 h-4" />
-                        </button>
-                        <button className="p-2 text-red-600 hover:text-red-700">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {activeTab === 'users' && (
-              <div>
-                <div className="flex justify-between items-center mb-6">
-                  <h2 className="text-lg font-bold text-gray-900">ユーザー一覧</h2>
-                  <button 
-                    onClick={() => setShowUserModal(true)}
-                    className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
-                  >
-                    <Plus className="w-4 h-4" />
-                    ユーザーを追加
-                  </button>
-                </div>
-                <div className="space-y-3">
-                  {users.map(user => (
-                    <div key={user.id} className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                          user.role === 'admin' ? 'bg-purple-100' :
-                          user.role === 'client' ? 'bg-green-100' : 'bg-blue-100'
-                        }`}>
-                          <User className={`w-5 h-5 ${
-                            user.role === 'admin' ? 'text-purple-600' :
-                            user.role === 'client' ? 'text-green-600' : 'text-blue-600'
-                          }`} />
-                        </div>
-                        <div>
-                          <p className="font-medium text-gray-900">{user.name}</p>
-                          <p className="text-sm text-gray-600">{user.email}</p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                          user.role === 'admin' ? 'bg-purple-100 text-purple-700' :
-                          user.role === 'client' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'
-                        }`}>
-                          {user.role === 'admin' ? '管理者' : user.role === 'client' ? 'クライアント' : 'スタッフ'}
-                        </span>
-                        <button className="p-2 text-gray-600 hover:text-gray-900">
-                          <Settings className="w-4 h-4" />
-                        </button>
-                        <button className="p-2 text-red-600 hover:text-red-700">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {activeTab === 'reports' && (
-              <div>
-                <h2 className="text-lg font-bold text-gray-900 mb-6">月次レポート</h2>
-                <div className="grid md:grid-cols-2 gap-6">
-                  <div className="bg-gray-50 rounded-lg p-6">
-                    <h3 className="font-medium text-gray-900 mb-4">清掃実施状況</h3>
-                    <div className="space-y-3">
-                      {mockFacilities.map(facility => (
-                        <div key={facility.id} className="flex items-center justify-between">
-                          <span className="text-sm text-gray-600">{facility.name}</span>
-                          <div className="flex items-center gap-2">
-                            <div className="w-32 bg-gray-200 rounded-full h-2">
-                              <div className="bg-green-600 h-2 rounded-full" style={{width: '85%'}} />
-                            </div>
-                            <span className="text-sm text-gray-700">85%</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  
-                  <div className="bg-gray-50 rounded-lg p-6">
-                    <h3 className="font-medium text-gray-900 mb-4">月次点検実施率</h3>
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-gray-600">換気扇清掃</span>
-                        <div className="flex items-center gap-2">
-                          <div className="w-32 bg-gray-200 rounded-full h-2">
-                            <div className="bg-blue-600 h-2 rounded-full" style={{width: '92%'}} />
-                          </div>
-                          <span className="text-sm text-gray-700">92%</span>
-                        </div>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-gray-600">エアコンフィルター</span>
-                        <div className="flex items-center gap-2">
-                          <div className="w-32 bg-gray-200 rounded-full h-2">
-                            <div className="bg-blue-600 h-2 rounded-full" style={{width: '88%'}} />
-                          </div>
-                          <span className="text-sm text-gray-700">88%</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
+// 古いAdminDashboardコンポーネントを削除（新しいコンポーネントを使用）
 
 // メインアプリコンポーネント
 export default function App() {
@@ -973,11 +671,40 @@ export default function App() {
 
   switch (currentUser.role) {
     case 'staff':
-      return <StaffDashboard user={currentUser} onLogout={handleLogout} />;
+      return (
+        <div className="min-h-screen bg-gray-50">
+          <header className="bg-white shadow-sm p-4">
+            <div className="flex justify-between items-center">
+              <h1 className="text-xl font-bold">スタッフダッシュボード - {currentUser.name}</h1>
+              <button onClick={handleLogout} className="px-4 py-2 bg-red-500 text-white rounded">
+                ログアウト
+              </button>
+            </div>
+          </header>
+          <main className="p-6">
+            <div className="space-y-8">
+              <div>
+                <h2 className="text-lg font-semibold mb-4">📱 iPhone風写真選択（テスト）</h2>
+                <PhotoSelector
+                  photos={[]}
+                  onPhotosChange={(photos) => console.log('Photos changed:', photos)}
+                  photoType="before"
+                  title="清掃前の写真"
+                  maxPhotos={10}
+                />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold mb-4">📊 月次チェック管理</h2>
+                <MonthlyCheckDashboard currentUser={currentUser} />
+              </div>
+            </div>
+          </main>
+        </div>
+      );
     case 'client':
       return <ClientDashboard user={currentUser} onLogout={handleLogout} />;
     case 'admin':
-      return <AdminDashboard onLogout={handleLogout} />;
+      return <AdminDashboard currentUser={currentUser} onLogout={handleLogout} />;
     default:
       return <LoginScreen onLogin={handleLogin} />;
   }

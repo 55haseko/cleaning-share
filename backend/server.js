@@ -517,6 +517,44 @@ app.put('/api/users/:userId', authenticateToken, requireAdmin, async (req, res) 
   }
 });
 
+// パスワードリセット（管理者のみ）
+app.put('/api/users/:userId/reset-password', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { newPassword } = req.body;
+
+    // バリデーション
+    if (!newPassword || newPassword.length < 6) {
+      return res.status(400).json({ error: 'パスワードは6文字以上である必要があります' });
+    }
+
+    // ユーザーが存在するかチェック
+    const [users] = await pool.execute(
+      'SELECT id FROM users WHERE id = ?',
+      [userId]
+    );
+
+    if (users.length === 0) {
+      return res.status(404).json({ error: 'ユーザーが見つかりません' });
+    }
+
+    // パスワードをハッシュ化
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    // パスワードを更新
+    await pool.execute(
+      'UPDATE users SET password_hash = ? WHERE id = ?',
+      [hashedPassword, userId]
+    );
+
+    res.json({ message: 'パスワードをリセットしました' });
+    logger.info(`パスワードリセット: ユーザーID=${userId}`);
+  } catch (error) {
+    logger.error('パスワードリセットエラー:', error);
+    res.status(500).json({ error: 'サーバーエラーが発生しました' });
+  }
+});
+
 // ===== 施設管理 =====
 app.get('/api/facilities', authenticateToken, async (req, res) => {
   try {
@@ -742,6 +780,118 @@ app.get('/api/albums/:facilityId', authenticateToken, async (req, res) => {
   }
 });
 
+// ===== 月次チェック管理 =====
+// 月次チェック状況取得
+app.get('/api/monthly-checks', authenticateToken, async (req, res) => {
+  try {
+    const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
+
+    let query;
+    let params = [];
+
+    if (req.user.role === 'admin') {
+      // 管理者：全施設の月次チェック状況
+      query = `
+        SELECT
+          f.id as facility_id,
+          f.name as facility_name,
+          f.address,
+          MAX(CASE WHEN cs.ventilation_checked = 1 AND DATE_FORMAT(cs.cleaning_date, '%Y-%m') = ? THEN cs.cleaning_date END) as last_ventilation_check,
+          MAX(CASE WHEN cs.air_filter_checked = 1 AND DATE_FORMAT(cs.cleaning_date, '%Y-%m') = ? THEN cs.cleaning_date END) as last_air_filter_check,
+          (MAX(CASE WHEN cs.ventilation_checked = 1 AND DATE_FORMAT(cs.cleaning_date, '%Y-%m') = ? THEN 1 ELSE 0 END)) as ventilation_done,
+          (MAX(CASE WHEN cs.air_filter_checked = 1 AND DATE_FORMAT(cs.cleaning_date, '%Y-%m') = ? THEN 1 ELSE 0 END)) as air_filter_done
+        FROM facilities f
+        LEFT JOIN cleaning_sessions cs ON f.id = cs.facility_id
+        GROUP BY f.id, f.name, f.address
+        ORDER BY f.name
+      `;
+      params = [currentMonth, currentMonth, currentMonth, currentMonth];
+    } else if (req.user.role === 'staff') {
+      // スタッフ：担当施設の月次チェック状況
+      query = `
+        SELECT
+          f.id as facility_id,
+          f.name as facility_name,
+          f.address,
+          MAX(CASE WHEN cs.ventilation_checked = 1 AND DATE_FORMAT(cs.cleaning_date, '%Y-%m') = ? THEN cs.cleaning_date END) as last_ventilation_check,
+          MAX(CASE WHEN cs.air_filter_checked = 1 AND DATE_FORMAT(cs.cleaning_date, '%Y-%m') = ? THEN cs.cleaning_date END) as last_air_filter_check,
+          (MAX(CASE WHEN cs.ventilation_checked = 1 AND DATE_FORMAT(cs.cleaning_date, '%Y-%m') = ? THEN 1 ELSE 0 END)) as ventilation_done,
+          (MAX(CASE WHEN cs.air_filter_checked = 1 AND DATE_FORMAT(cs.cleaning_date, '%Y-%m') = ? THEN 1 ELSE 0 END)) as air_filter_done
+        FROM facilities f
+        JOIN staff_facilities sf ON f.id = sf.facility_id
+        LEFT JOIN cleaning_sessions cs ON f.id = cs.facility_id
+        WHERE sf.staff_user_id = ?
+        GROUP BY f.id, f.name, f.address
+        ORDER BY f.name
+      `;
+      params = [currentMonth, currentMonth, currentMonth, currentMonth, req.user.id];
+    } else {
+      return res.status(403).json({ error: 'アクセス権限がありません' });
+    }
+
+    const [results] = await pool.execute(query, params);
+
+    res.json({
+      month: currentMonth,
+      facilities: results
+    });
+  } catch (error) {
+    logger.error('月次チェック状況取得エラー:', error);
+    res.status(500).json({ error: 'サーバーエラーが発生しました' });
+  }
+});
+
+// 月次チェック統計（管理者用）
+app.get('/api/monthly-checks/stats', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
+
+    // 施設総数
+    const [totalFacilities] = await pool.execute('SELECT COUNT(*) as count FROM facilities');
+
+    // 換気扇チェック完了数
+    const [ventilationDone] = await pool.execute(`
+      SELECT COUNT(DISTINCT facility_id) as count
+      FROM cleaning_sessions
+      WHERE ventilation_checked = 1 AND DATE_FORMAT(cleaning_date, '%Y-%m') = ?
+    `, [currentMonth]);
+
+    // エアコンフィルターチェック完了数
+    const [airFilterDone] = await pool.execute(`
+      SELECT COUNT(DISTINCT facility_id) as count
+      FROM cleaning_sessions
+      WHERE air_filter_checked = 1 AND DATE_FORMAT(cleaning_date, '%Y-%m') = ?
+    `, [currentMonth]);
+
+    // 両方完了の施設数
+    const [bothDone] = await pool.execute(`
+      SELECT COUNT(*) as count FROM (
+        SELECT facility_id
+        FROM cleaning_sessions
+        WHERE DATE_FORMAT(cleaning_date, '%Y-%m') = ?
+        GROUP BY facility_id
+        HAVING MAX(ventilation_checked) = 1 AND MAX(air_filter_checked) = 1
+      ) as completed_facilities
+    `, [currentMonth]);
+
+    res.json({
+      month: currentMonth,
+      total_facilities: totalFacilities[0].count,
+      ventilation_completed: ventilationDone[0].count,
+      air_filter_completed: airFilterDone[0].count,
+      both_completed: bothDone[0].count,
+      completion_rate: {
+        ventilation: Math.round((ventilationDone[0].count / totalFacilities[0].count) * 100),
+        air_filter: Math.round((airFilterDone[0].count / totalFacilities[0].count) * 100),
+        both: Math.round((bothDone[0].count / totalFacilities[0].count) * 100)
+      }
+    });
+  } catch (error) {
+    logger.error('月次チェック統計取得エラー:', error);
+    res.status(500).json({ error: 'サーバーエラーが発生しました' });
+  }
+});
+
 // ===== 統計情報 =====
 app.get('/api/stats/daily', authenticateToken, requireAdmin, async (req, res) => {
   try {
@@ -792,8 +942,9 @@ async function startServer() {
   await ensureDir(path.join(STORAGE_ROOT, 'photos'));
   await ensureDir(path.join(STORAGE_ROOT, 'receipts'));
   
-  app.listen(PORT, () => {
+  app.listen(PORT, '0.0.0.0', () => {
     logger.info(`サーバーが起動しました: http://localhost:${PORT}`);
+    logger.info(`外部アクセス用: http://192.168.137.97:${PORT}`);
     logger.info(`環境: ${process.env.NODE_ENV || 'development'}`);
     logger.info(`ストレージ: ${STORAGE_ROOT}`);
   });

@@ -7,7 +7,7 @@ See @README and @docs/ARCHITECTURE.md (if exists).
 
 ## Status
 - Stack: React (CRA) / Node.js + Express / MySQL
-- Storage: 現状=ローカル `./uploads`（multer） / 目標=S3等に移行
+- Storage: ローカル `./uploads`（multer）で運用継続
 - Port: BE=4000（.env）, FE=3000（想定）
 - Retention: **写真60日自動削除（cron=毎日02:00）** ✅
 - 領収書: **未実装** → 施設×月（YYYY-MM）で実装予定
@@ -53,9 +53,8 @@ See @README and @docs/ARCHITECTURE.md (if exists).
 - CORS: **固定オリジン**のみ許可（`.env: CORS_ORIGIN`）
 
 ## Storage Layout
-- 現状: `uploads/photos/{facilityId}/{YYYY-MM}/{YYYY-MM-DD}/{type}/{uuid}.jpg`
-- 目標: `s3://{bucket}/org/{facilityId}/{YYYY}/{MM}/{kind}/...`
-- ライフサイクル: raw/thumbnail=60d, bundles=365d（目標）
+- ローカル: `uploads_dev/photos/{facilityId}/{YYYY-MM}/{YYYY-MM-DD}/{type}/{uuid}.jpg`
+- ライフサイクル: raw/thumbnail=60d, bundles=365d
 
 ## Observability / SLO
 - SLO(目安): p95 アップロード開始<400ms / 単枚完了<5s(4G)
@@ -82,4 +81,4 @@ See @README and @docs/ARCHITECTURE.md (if exists).
 - `UPLOAD_DIR=./uploads`
 - `RETENTION_DAYS_PHOTO=60`
 - `JWT_SECRET=...`
-- （将来）`STORAGE_BUCKET`, `PRESIGN_TTL_SEC`, `RETENTION_DAYS_BUNDLE`
+- `RETENTION_DAYS_BUNDLE=365`
