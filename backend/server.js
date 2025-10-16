@@ -584,16 +584,106 @@ app.get('/api/facilities', authenticateToken, async (req, res) => {
 app.post('/api/facilities', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { name, address, client_user_id } = req.body;
-    
+
     const [result] = await pool.execute(
       'INSERT INTO facilities (name, address, client_user_id) VALUES (?, ?, ?)',
       [name, address, client_user_id]
     );
-    
+
     res.status(201).json({ id: result.insertId, name, address, client_user_id });
     logger.info(`新規施設作成: ${name}`);
   } catch (error) {
     logger.error('施設作成エラー:', error);
+    res.status(500).json({ error: 'サーバーエラーが発生しました' });
+  }
+});
+
+// 施設更新（管理者のみ）
+app.put('/api/facilities/:facilityId', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { facilityId } = req.params;
+    const { name, address, client_user_id } = req.body;
+
+    // バリデーション
+    if (!name) {
+      return res.status(400).json({ error: '施設名は必須です' });
+    }
+
+    // 施設が存在するかチェック
+    const [existing] = await pool.execute(
+      'SELECT id FROM facilities WHERE id = ?',
+      [facilityId]
+    );
+
+    if (existing.length === 0) {
+      return res.status(404).json({ error: '施設が見つかりません' });
+    }
+
+    // 施設情報を更新
+    await pool.execute(
+      'UPDATE facilities SET name = ?, address = ?, client_user_id = ? WHERE id = ?',
+      [name, address, client_user_id || null, facilityId]
+    );
+
+    res.json({
+      id: parseInt(facilityId),
+      name,
+      address,
+      client_user_id,
+      message: '施設情報を更新しました'
+    });
+    logger.info(`施設更新: ID=${facilityId}, ${name}`);
+  } catch (error) {
+    logger.error('施設更新エラー:', error);
+    res.status(500).json({ error: 'サーバーエラーが発生しました' });
+  }
+});
+
+// 施設削除（管理者のみ）
+app.delete('/api/facilities/:facilityId', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { facilityId } = req.params;
+
+    // 施設が存在するかチェック
+    const [existing] = await pool.execute(
+      'SELECT id, name FROM facilities WHERE id = ?',
+      [facilityId]
+    );
+
+    if (existing.length === 0) {
+      return res.status(404).json({ error: '施設が見つかりません' });
+    }
+
+    // 関連データをチェック（清掃セッションが存在する場合は警告）
+    const [sessions] = await pool.execute(
+      'SELECT COUNT(*) as count FROM cleaning_sessions WHERE facility_id = ?',
+      [facilityId]
+    );
+
+    if (sessions[0].count > 0) {
+      return res.status(400).json({
+        error: `この施設には${sessions[0].count}件の清掃記録があります。削除する前にデータを確認してください。`,
+        hasData: true,
+        sessionCount: sessions[0].count
+      });
+    }
+
+    // スタッフ施設の関連を削除
+    await pool.execute(
+      'DELETE FROM staff_facilities WHERE facility_id = ?',
+      [facilityId]
+    );
+
+    // 施設を削除
+    await pool.execute(
+      'DELETE FROM facilities WHERE id = ?',
+      [facilityId]
+    );
+
+    res.json({ message: '施設を削除しました' });
+    logger.info(`施設削除: ID=${facilityId}, ${existing[0].name}`);
+  } catch (error) {
+    logger.error('施設削除エラー:', error);
     res.status(500).json({ error: 'サーバーエラーが発生しました' });
   }
 });
@@ -896,33 +986,70 @@ app.get('/api/monthly-checks/stats', authenticateToken, requireAdmin, async (req
 app.get('/api/stats/daily', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const today = new Date().toISOString().split('T')[0];
-    
-    // 今日のアップロード数
+
+    // 今日のアップロード数（セッション数）
     const [uploads] = await pool.execute(
       'SELECT COUNT(*) as count FROM cleaning_sessions WHERE DATE(created_at) = ?',
       [today]
     );
-    
+
     // 今日の清掃施設数
     const [facilities] = await pool.execute(
       'SELECT COUNT(DISTINCT facility_id) as count FROM cleaning_sessions WHERE cleaning_date = ?',
       [today]
     );
-    
+
     // 今日の写真数
     const [photos] = await pool.execute(
       'SELECT COUNT(*) as count FROM photos WHERE DATE(uploaded_at) = ?',
       [today]
     );
-    
+
+    // 今日の失敗数（仮: 実装により異なる）
+    // ここでは0として返す（将来的にエラーログテーブルから取得）
+    const failures = 0;
+
     res.json({
       date: today,
       uploads: uploads[0].count,
       facilities: facilities[0].count,
-      photos: photos[0].count
+      photos: photos[0].count,
+      failures: failures
     });
   } catch (error) {
     logger.error('統計取得エラー:', error);
+    res.status(500).json({ error: 'サーバーエラーが発生しました' });
+  }
+});
+
+// 最近のアップロード履歴取得（管理者用）
+app.get('/api/stats/recent-uploads', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 10;
+
+    // 最近のアップロード履歴を取得
+    const [uploads] = await pool.execute(
+      `SELECT
+        cs.id,
+        cs.facility_id,
+        cs.cleaning_date,
+        cs.created_at as uploaded_at,
+        f.name as facility_name,
+        u.name as staff_name,
+        COUNT(p.id) as photo_count
+      FROM cleaning_sessions cs
+      JOIN facilities f ON cs.facility_id = f.id
+      LEFT JOIN users u ON cs.staff_user_id = u.id
+      LEFT JOIN photos p ON cs.id = p.cleaning_session_id
+      GROUP BY cs.id, cs.facility_id, cs.cleaning_date, cs.created_at, f.name, u.name
+      ORDER BY cs.created_at DESC
+      LIMIT ?`,
+      [limit]
+    );
+
+    res.json(uploads);
+  } catch (error) {
+    logger.error('最近のアップロード取得エラー:', error);
     res.status(500).json({ error: 'サーバーエラーが発生しました' });
   }
 });

@@ -1,6 +1,8 @@
 // ===== frontend/src/api/facilities.js =====
 // 施設関連API
 
+import { apiClient } from './config.js';
+
 export const facilitiesApi = {
   // 施設一覧取得
   async getList() {
