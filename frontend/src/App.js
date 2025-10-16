@@ -1,11 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Upload, Camera, Calendar, Users, Building, Download, Eye, Trash2, Plus, Check, X, AlertCircle, FileText, Filter, LogOut, Home, Image, Clock, User, Shield, BarChart3, ChevronRight, Search, Settings } from 'lucide-react';
+import { Upload, Camera, Calendar, Building, Download, Eye, Check, X, LogOut, User } from 'lucide-react';
 import { authApi } from './api/auth.js';
 import { photosApi } from './api/photos.js';
 import AdminDashboard from './components/AdminDashboard.js';
-import FacilitySelector from './components/FacilitySelector.js';
-import PhotoSelector from './components/PhotoSelector.js';
-import MonthlyCheckDashboard from './components/MonthlyCheckDashboard.js';
+import StaffDashboardNew from './components/StaffDashboardNew.js';
 
 // モックデータ
 const mockUsers = [
@@ -671,36 +669,7 @@ export default function App() {
 
   switch (currentUser.role) {
     case 'staff':
-      return (
-        <div className="min-h-screen bg-gray-50">
-          <header className="bg-white shadow-sm p-4">
-            <div className="flex justify-between items-center">
-              <h1 className="text-xl font-bold">スタッフダッシュボード - {currentUser.name}</h1>
-              <button onClick={handleLogout} className="px-4 py-2 bg-red-500 text-white rounded">
-                ログアウト
-              </button>
-            </div>
-          </header>
-          <main className="p-6">
-            <div className="space-y-8">
-              <div>
-                <h2 className="text-lg font-semibold mb-4">📱 iPhone風写真選択（テスト）</h2>
-                <PhotoSelector
-                  photos={[]}
-                  onPhotosChange={(photos) => console.log('Photos changed:', photos)}
-                  photoType="before"
-                  title="清掃前の写真"
-                  maxPhotos={10}
-                />
-              </div>
-              <div>
-                <h2 className="text-lg font-semibold mb-4">📊 月次チェック管理</h2>
-                <MonthlyCheckDashboard currentUser={currentUser} />
-              </div>
-            </div>
-          </main>
-        </div>
-      );
+      return <StaffDashboardNew user={currentUser} onLogout={handleLogout} />;
     case 'client':
       return <ClientDashboard user={currentUser} onLogout={handleLogout} />;
     case 'admin':

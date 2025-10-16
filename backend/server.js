@@ -120,7 +120,7 @@ const storage = multer.diskStorage({
   }
 });
 
-const upload = multer({ 
+const upload = multer({
   storage: storage,
   limits: {
     fileSize: 20 * 1024 * 1024 // 20MB制限
@@ -130,6 +130,50 @@ const upload = multer({
       return cb(null, true);
     } else {
       cb(new Error('画像ファイル（JPEG, PNG, GIF, WebP）のみアップロード可能です'));
+    }
+  }
+});
+
+// ===== 領収書用Multer設定 =====
+const receiptStorage = multer.diskStorage({
+  destination: async function (req, file, cb) {
+    const { facilityId, month } = req.body;
+    // month は YYYY-MM 形式
+    const targetMonth = month || new Date().toISOString().substring(0, 7);
+
+    // ディレクトリ構造: uploads_dev/receipts/{facility_id}/{YYYY-MM}/
+    const uploadPath = path.join(STORAGE_ROOT, 'receipts', facilityId.toString(), targetMonth);
+
+    try {
+      await ensureDir(uploadPath);
+      cb(null, uploadPath);
+    } catch (error) {
+      cb(error);
+    }
+  },
+  filename: function (req, file, cb) {
+    const { facilityId, month } = req.body;
+    const targetMonth = (month || new Date().toISOString().substring(0, 7)).replace(/-/g, ''); // YYYYMM
+    const uuid = require('crypto').randomUUID().substring(0, 8);
+    const ext = path.extname(file.originalname).toLowerCase();
+
+    // ファイル命名: fac-{id}_{YYYYMM}_receipt_{uuid}.{ext}
+    const filename = `fac-${facilityId}_${targetMonth}_receipt_${uuid}${ext}`;
+    cb(null, filename);
+  }
+});
+
+const receiptUpload = multer({
+  storage: receiptStorage,
+  limits: {
+    fileSize: 20 * 1024 * 1024 // 20MB制限
+  },
+  fileFilter: (req, file, cb) => {
+    // PDF、画像ファイルを許可
+    if (/\.(pdf|jpg|jpeg|png|gif|webp)$/i.test(file.originalname)) {
+      return cb(null, true);
+    } else {
+      cb(new Error('PDF、または画像ファイル（JPEG, PNG, GIF, WebP）のみアップロード可能です'));
     }
   }
 });
@@ -782,6 +826,138 @@ app.post('/api/photos/upload', authenticateToken, upload.array('photos', 20), as
   } catch (error) {
     logger.error('写真アップロードエラー:', error);
     res.status(500).json({ error: 'アップロードに失敗しました' });
+  }
+});
+
+// ===== 領収書アップロード =====
+app.post('/api/receipts/upload', authenticateToken, receiptUpload.array('receipts', 20), async (req, res) => {
+  try {
+    const { facilityId, sessionId, month } = req.body;
+    const uploadedFiles = [];
+
+    // セッションIDを取得または作成
+    let actualSessionId = sessionId;
+    if (!actualSessionId) {
+      const [result] = await pool.execute(
+        'INSERT INTO cleaning_sessions (facility_id, cleaning_date, staff_user_id) VALUES (?, CURDATE(), ?)',
+        [facilityId, req.user.id]
+      );
+      actualSessionId = result.insertId;
+    }
+
+    // 各ファイルを処理
+    for (const file of req.files) {
+      // データベースに記録（receiptsテーブルに保存）
+      const [result] = await pool.execute(
+        'INSERT INTO receipts (cleaning_session_id, facility_id, month, file_path, file_size, original_name, uploaded_by) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [actualSessionId, facilityId, month || new Date().toISOString().substring(0, 7), file.path, file.size, file.originalname, req.user.id]
+      );
+
+      // 相対パスを生成
+      const relativePath = path.relative(STORAGE_ROOT, file.path);
+
+      uploadedFiles.push({
+        id: result.insertId,
+        filename: file.filename,
+        size: file.size,
+        originalName: file.originalname,
+        url: `/uploads/${relativePath.replace(/\\/g, '/')}`
+      });
+    }
+
+    res.json({
+      success: true,
+      sessionId: actualSessionId,
+      files: uploadedFiles,
+      message: `${uploadedFiles.length}件の領収書をアップロードしました`
+    });
+
+    logger.info(`領収書アップロード: 施設${facilityId}, ${uploadedFiles.length}件`);
+  } catch (error) {
+    logger.error('領収書アップロードエラー:', error);
+    res.status(500).json({ error: '領収書のアップロードに失敗しました', details: error.message });
+  }
+});
+
+// ===== 月次点検保存 =====
+app.post('/api/monthly-checks/save', authenticateToken, async (req, res) => {
+  try {
+    const { facilityId, sessionId, ventilation, airFilter } = req.body;
+
+    // セッションIDを取得または作成
+    let actualSessionId = sessionId;
+    if (!actualSessionId) {
+      const [result] = await pool.execute(
+        'INSERT INTO cleaning_sessions (facility_id, cleaning_date, staff_user_id) VALUES (?, CURDATE(), ?)',
+        [facilityId, req.user.id]
+      );
+      actualSessionId = result.insertId;
+    }
+
+    // 月次点検項目を更新
+    await pool.execute(
+      'UPDATE cleaning_sessions SET ventilation_checked = ?, air_filter_checked = ? WHERE id = ?',
+      [ventilation ? 1 : 0, airFilter ? 1 : 0, actualSessionId]
+    );
+
+    res.json({
+      success: true,
+      sessionId: actualSessionId,
+      message: '月次点検を保存しました',
+      checks: {
+        ventilation,
+        airFilter
+      }
+    });
+
+    logger.info(`月次点検保存: セッション${actualSessionId}, 換気扇=${ventilation}, エアコン=${airFilter}`);
+  } catch (error) {
+    logger.error('月次点検保存エラー:', error);
+    res.status(500).json({ error: '月次点検の保存に失敗しました', details: error.message });
+  }
+});
+
+// ===== 月次点検状態取得 =====
+app.get('/api/monthly-checks/:facilityId', authenticateToken, async (req, res) => {
+  try {
+    const { facilityId } = req.params;
+    const { month } = req.query; // YYYY-MM形式
+
+    // 指定された月のセッション情報を取得
+    const startDate = month ? `${month}-01` : new Date().toISOString().split('T')[0].substring(0, 8) + '01';
+    const endDate = month
+      ? new Date(new Date(startDate).getFullYear(), new Date(startDate).getMonth() + 1, 0).toISOString().split('T')[0]
+      : new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).toISOString().split('T')[0];
+
+    const [sessions] = await pool.execute(
+      `SELECT id, cleaning_date, ventilation_checked, air_filter_checked, staff_user_id
+       FROM cleaning_sessions
+       WHERE facility_id = ? AND cleaning_date BETWEEN ? AND ?
+       ORDER BY cleaning_date DESC`,
+      [facilityId, startDate, endDate]
+    );
+
+    // 月次点検が完了しているかチェック
+    const hasVentilationCheck = sessions.some(s => s.ventilation_checked);
+    const hasAirFilterCheck = sessions.some(s => s.air_filter_checked);
+
+    res.json({
+      facilityId: parseInt(facilityId),
+      month: month || new Date().toISOString().substring(0, 7),
+      checks: {
+        ventilation: hasVentilationCheck,
+        airFilter: hasAirFilterCheck
+      },
+      sessions: sessions.map(s => ({
+        id: s.id,
+        date: s.cleaning_date,
+        ventilationChecked: Boolean(s.ventilation_checked),
+        airFilterChecked: Boolean(s.air_filter_checked)
+      }))
+    });
+  } catch (error) {
+    logger.error('月次点検取得エラー:', error);
+    res.status(500).json({ error: '月次点検の取得に失敗しました' });
   }
 });
 

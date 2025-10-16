@@ -65,3 +65,24 @@ CREATE TABLE IF NOT EXISTS photos (
     ON DELETE CASCADE ON UPDATE CASCADE,
   INDEX idx_ph_session (cleaning_session_id)
 ) ENGINE=InnoDB;
+
+-- 領収書
+CREATE TABLE IF NOT EXISTS receipts (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  cleaning_session_id INT,
+  facility_id INT NOT NULL,
+  month VARCHAR(7) NOT NULL COMMENT 'YYYY-MM形式',
+  file_path VARCHAR(512) NOT NULL,
+  file_size INT,
+  original_name VARCHAR(255),
+  uploaded_by INT,
+  uploaded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_rec_session FOREIGN KEY (cleaning_session_id) REFERENCES cleaning_sessions(id)
+    ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT fk_rec_facility FOREIGN KEY (facility_id) REFERENCES facilities(id)
+    ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT fk_rec_uploader FOREIGN KEY (uploaded_by) REFERENCES users(id)
+    ON DELETE SET NULL ON UPDATE CASCADE,
+  INDEX idx_rec_facility_month (facility_id, month),
+  INDEX idx_rec_session (cleaning_session_id)
+) ENGINE=InnoDB;
