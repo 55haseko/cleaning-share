@@ -1,0 +1,28 @@
+name: Deploy to VPS
+
+on:
+  push:
+    branches: [ "main" ]
+
+concurrency:
+  group: cleaning-share-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          # セキュリティ強化（任意）：初回にサーバのフィンガープリントを登録しておき、ここに指定すると中間者攻撃対策になります
+          # host_fingerprint: ${{ secrets.SSH_HOST_FINGERPRINT }}
+          script_stop: true
+          script: |
+            bash /root/deploy_cleaning_share.sh

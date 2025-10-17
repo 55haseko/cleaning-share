@@ -1,7 +1,7 @@
 // ===== frontend/src/api/config.js =====
 // API設定ファイル
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:4001/api';
 
 // APIクライアント設定
 class ApiClient {
@@ -87,6 +87,8 @@ class ApiClient {
 
 // シングルトンインスタンス
 const apiClient = new ApiClient();
+
+export { apiClient };
 
 
 
