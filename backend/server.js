@@ -829,7 +829,77 @@ app.post('/api/photos/upload', authenticateToken, upload.array('photos', 20), as
   }
 });
 
-// ===== 領収書アップロード =====
+// ===== 領収書管理 =====
+// 領収書一覧取得
+app.get('/api/receipts/:facilityId', authenticateToken, async (req, res) => {
+  try {
+    const { facilityId } = req.params;
+    const { month } = req.query;
+
+    // 権限チェック: adminまたは該当施設のclient/staff
+    if (req.user.role !== 'admin') {
+      if (req.user.role === 'client') {
+        const [facilities] = await pool.execute(
+          'SELECT id FROM facilities WHERE id = ? AND client_user_id = ?',
+          [facilityId, req.user.id]
+        );
+        if (facilities.length === 0) {
+          return res.status(403).json({ error: 'この施設の領収書を閲覧する権限がありません' });
+        }
+      } else if (req.user.role === 'staff') {
+        const [facilities] = await pool.execute(
+          'SELECT f.id FROM facilities f JOIN staff_facilities sf ON f.id = sf.facility_id WHERE f.id = ? AND sf.staff_user_id = ?',
+          [facilityId, req.user.id]
+        );
+        if (facilities.length === 0) {
+          return res.status(403).json({ error: 'この施設の領収書を閲覧する権限がありません' });
+        }
+      }
+    }
+
+    let query = `
+      SELECT
+        r.id,
+        r.facility_id,
+        r.month,
+        r.file_path,
+        r.file_size,
+        r.original_name,
+        r.uploaded_at,
+        r.uploaded_by,
+        u.name as uploaded_by_name
+      FROM receipts r
+      LEFT JOIN users u ON r.uploaded_by = u.id
+      WHERE r.facility_id = ?
+    `;
+    const params = [facilityId];
+
+    if (month) {
+      query += ' AND r.month = ?';
+      params.push(month);
+    }
+
+    query += ' ORDER BY r.month DESC, r.uploaded_at DESC';
+
+    const [receipts] = await pool.execute(query, params);
+
+    // パスをURLに変換
+    const receiptsWithUrls = receipts.map(receipt => {
+      const relativePath = path.relative(STORAGE_ROOT, receipt.file_path);
+      return {
+        ...receipt,
+        url: `/uploads/${relativePath.replace(/\\/g, '/')}`
+      };
+    });
+
+    res.json(receiptsWithUrls);
+  } catch (error) {
+    logger.error('領収書一覧取得エラー:', error);
+    res.status(500).json({ error: '領収書の取得に失敗しました' });
+  }
+});
+
+// 領収書アップロード
 app.post('/api/receipts/upload', authenticateToken, receiptUpload.array('receipts', 20), async (req, res) => {
   try {
     const { facilityId, sessionId, month } = req.body;
