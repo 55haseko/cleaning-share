@@ -10,6 +10,7 @@
     "cleanup": "node scripts/cleanupOldPhotos.js"
   },
   "dependencies": {
+    "archiver": "^7.0.1",
     "bcrypt": "^5.1.1",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",

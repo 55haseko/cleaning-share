@@ -8,9 +8,11 @@ const multer = require('multer');
 const sharp = require('sharp');
 const cors = require('cors');
 const fs = require('fs').promises;
+const fsSync = require('fs');
 const cron = require('node-cron');
 const winston = require('winston');
 const rateLimit = require('express-rate-limit');
+const archiver = require('archiver');
 require('dotenv').config();
 
 // ===== 設定 =====
@@ -1176,6 +1178,99 @@ app.get('/api/albums/:facilityId', authenticateToken, async (req, res) => {
   } catch (error) {
     logger.error('アルバム取得エラー:', error);
     res.status(500).json({ error: 'サーバーエラーが発生しました' });
+  }
+});
+
+// アルバムの写真を一括ダウンロード（ZIP）
+app.get('/api/albums/:facilityId/:sessionId/download', authenticateToken, async (req, res) => {
+  try {
+    const { facilityId, sessionId } = req.params;
+
+    // 権限チェック：admin、またはfacilityのclient/staff
+    if (req.user.role !== 'admin') {
+      if (req.user.role === 'client') {
+        const [facilities] = await pool.execute(
+          'SELECT id FROM facilities WHERE id = ? AND client_user_id = ?',
+          [facilityId, req.user.id]
+        );
+        if (facilities.length === 0) {
+          return res.status(403).json({ error: 'この施設の写真をダウンロードする権限がありません' });
+        }
+      } else if (req.user.role === 'staff') {
+        const [facilities] = await pool.execute(
+          'SELECT f.id FROM facilities f INNER JOIN staff_facilities sf ON f.id = sf.facility_id WHERE f.id = ? AND sf.staff_user_id = ?',
+          [facilityId, req.user.id]
+        );
+        if (facilities.length === 0) {
+          return res.status(403).json({ error: 'この施設の写真をダウンロードする権限がありません' });
+        }
+      }
+    }
+
+    // セッション情報と写真を取得
+    const [sessions] = await pool.execute(
+      'SELECT cs.*, f.name as facility_name FROM cleaning_sessions cs JOIN facilities f ON cs.facility_id = f.id WHERE cs.id = ? AND cs.facility_id = ?',
+      [sessionId, facilityId]
+    );
+
+    if (sessions.length === 0) {
+      return res.status(404).json({ error: 'アルバムが見つかりません' });
+    }
+
+    const session = sessions[0];
+
+    // 写真を取得
+    const [photos] = await pool.execute(
+      'SELECT id, type, file_path, original_name FROM photos WHERE cleaning_session_id = ?',
+      [sessionId]
+    );
+
+    if (photos.length === 0) {
+      return res.status(404).json({ error: '写真が見つかりません' });
+    }
+
+    // ZIPファイル名を生成
+    const date = new Date(session.cleaning_date).toISOString().split('T')[0];
+    const zipFilename = `${session.facility_name}_${date}_photos.zip`.replace(/[^a-zA-Z0-9_\-\.]/g, '_');
+
+    // レスポンスヘッダーを設定
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(zipFilename)}"`);
+
+    // archiverでZIPを作成
+    const archive = archiver('zip', {
+      zlib: { level: 6 } // 圧縮レベル
+    });
+
+    // エラーハンドリング
+    archive.on('error', (err) => {
+      logger.error('ZIP作成エラー:', err);
+      res.status(500).json({ error: 'ZIPファイルの作成に失敗しました' });
+    });
+
+    // アーカイブをレスポンスにパイプ
+    archive.pipe(res);
+
+    // 写真をZIPに追加
+    for (const photo of photos) {
+      const filePath = photo.file_path;
+
+      // ファイルが存在するか確認
+      if (fsSync.existsSync(filePath)) {
+        const fileName = `${photo.type}_${photo.id}_${photo.original_name || path.basename(filePath)}`;
+        archive.file(filePath, { name: fileName });
+      }
+    }
+
+    // ZIPを確定して送信
+    await archive.finalize();
+
+    logger.info(`写真一括ダウンロード: sessionId=${sessionId}, 写真数=${photos.length}`);
+  } catch (error) {
+    logger.error('写真一括ダウンロードエラー:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'ダウンロードに失敗しました' });
+    }
   }
 });
 
