@@ -1,7 +1,7 @@
 // ===== frontend/src/api/receipts.js =====
 // 領収書API クライアント
 
-import { apiClient } from './config.js';
+import { apiClient, getFullUrl } from './config.js';
 
 export const receiptsApi = {
   /**
@@ -27,7 +27,17 @@ export const receiptsApi = {
       formData.append('receipts', file);
     });
 
-    return await apiClient.post('/receipts/upload', formData);
+    const response = await apiClient.post('/receipts/upload', formData);
+
+    // URLを完全なURLに変換
+    if (response.files) {
+      response.files = response.files.map(file => ({
+        ...file,
+        url: getFullUrl(file.url)
+      }));
+    }
+
+    return response;
   },
 
   /**
@@ -41,7 +51,13 @@ export const receiptsApi = {
       ? `/receipts/${facilityId}?month=${month}`
       : `/receipts/${facilityId}`;
 
-    return await apiClient.get(endpoint);
+    const receipts = await apiClient.get(endpoint);
+
+    // URLを完全なURLに変換
+    return receipts.map(receipt => ({
+      ...receipt,
+      url: getFullUrl(receipt.url)
+    }));
   },
 
   /**

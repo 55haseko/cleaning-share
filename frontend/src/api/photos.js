@@ -1,7 +1,7 @@
 // ===== frontend/src/api/photos.js =====
 // 写真関連API
 
-import { apiClient } from './config.js';
+import { apiClient, getFullUrl } from './config.js';
 
 export const photosApi = {
   // 写真アップロード（仕様準拠版）
@@ -26,13 +26,34 @@ export const photosApi = {
       formData.append('photos', photo);
     });
 
-    return await apiClient.post('/photos/upload', formData);
+    const response = await apiClient.post('/photos/upload', formData);
+
+    // URLを完全なURLに変換
+    if (response.files) {
+      response.files = response.files.map(file => ({
+        ...file,
+        url: getFullUrl(file.url),
+        thumbnailUrl: file.thumbnailUrl ? getFullUrl(file.thumbnailUrl) : null
+      }));
+    }
+
+    return response;
   },
 
   // アルバム取得
   async getAlbums(facilityId, date = null) {
     const query = date ? `?date=${date}` : '';
-    return await apiClient.get(`/albums/${facilityId}${query}`);
+    const albums = await apiClient.get(`/albums/${facilityId}${query}`);
+
+    // URLを完全なURLに変換
+    return albums.map(album => ({
+      ...album,
+      photos: album.photos ? album.photos.map(photo => ({
+        ...photo,
+        url: getFullUrl(photo.url),
+        thumbnailUrl: photo.thumbnailUrl ? getFullUrl(photo.thumbnailUrl) : null
+      })) : []
+    }));
   },
 
   // 写真削除
