@@ -85,15 +85,6 @@ const LoginScreen = ({ onLogin }) => {
             {loading ? 'ログイン中...' : 'ログイン'}
           </button>
         </div>
-
-        <div className="mt-6 pt-6 border-t border-gray-200">
-          <p className="text-sm text-gray-600 text-center">デモ用アカウント:</p>
-          <div className="mt-2 space-y-1 text-xs text-gray-500">
-            <p>スタッフ: staff1@cleaning.com / staff123</p>
-            <p>クライアント: client1@example.com / client123</p>
-            <p>管理者: admin@example.com / admin123</p>
-          </div>
-        </div>
       </div>
     </div>
   );
@@ -156,6 +147,55 @@ const ClientDashboard = ({ user, onLogout }) => {
       setReceiptsLoading(false);
     }
   }, []);
+
+  // アルバムの写真を一括ダウンロード
+  const handleDownloadAlbum = async () => {
+    if (!selectedAlbum || !selectedFacility) return;
+
+    try {
+      const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:4001/api';
+      const token = localStorage.getItem('token');
+
+      const url = `${API_BASE_URL}/albums/${selectedFacility.id}/${selectedAlbum.id}/download`;
+
+      // fetch APIでダウンロード
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('ダウンロードに失敗しました');
+      }
+
+      // Blobとしてデータを取得
+      const blob = await response.blob();
+
+      // ファイル名を取得（Content-Dispositionヘッダーから）
+      const contentDisposition = response.headers.get('Content-Disposition');
+      let filename = 'photos.zip';
+      if (contentDisposition) {
+        const matches = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/.exec(contentDisposition);
+        if (matches && matches[1]) {
+          filename = decodeURIComponent(matches[1].replace(/['"]/g, ''));
+        }
+      }
+
+      // ダウンロードリンクを作成してクリック
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = downloadUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(downloadUrl);
+      document.body.removeChild(a);
+    } catch (err) {
+      setError('ダウンロードに失敗しました: ' + err.message);
+    }
+  };
 
   // 初期ロード：施設一覧を取得
   useEffect(() => {
@@ -435,7 +475,11 @@ const ClientDashboard = ({ user, onLogout }) => {
                 <p className="text-sm text-gray-600">{selectedFacility.name}</p>
               </div>
               <div className="flex items-center gap-2">
-                <button className="p-2 text-gray-600 hover:text-gray-900">
+                <button
+                  onClick={handleDownloadAlbum}
+                  className="p-2 text-blue-600 hover:text-blue-900 hover:bg-blue-50 rounded-lg transition-colors"
+                  title="写真を一括ダウンロード"
+                >
                   <Download className="w-5 h-5" />
                 </button>
                 <button
