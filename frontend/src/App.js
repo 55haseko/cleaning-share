@@ -154,9 +154,12 @@ const ClientDashboard = ({ user, onLogout }) => {
 
     try {
       const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:4001/api';
-      const token = localStorage.getItem('token');
+      const token = localStorage.getItem('authToken');
 
       const url = `${API_BASE_URL}/albums/${selectedFacility.id}/${selectedAlbum.id}/download`;
+      console.log('ダウンロードURL:', url);
+      console.log('facilityId:', selectedFacility.id, 'sessionId:', selectedAlbum.id);
+      console.log('token:', token ? 'あり' : 'なし');
 
       // fetch APIでダウンロード
       const response = await fetch(url, {
@@ -167,11 +170,18 @@ const ClientDashboard = ({ user, onLogout }) => {
       });
 
       if (!response.ok) {
-        throw new Error('ダウンロードに失敗しました');
+        const errorText = await response.text();
+        console.error('ダウンロードエラー:', response.status, errorText);
+        throw new Error(`ダウンロードに失敗しました (${response.status})`);
       }
 
       // Blobとしてデータを取得
       const blob = await response.blob();
+
+      // Blobのサイズをチェック
+      if (blob.size === 0) {
+        throw new Error('ダウンロードしたファイルが空です');
+      }
 
       // ファイル名を取得（Content-Dispositionヘッダーから）
       const contentDisposition = response.headers.get('Content-Disposition');
@@ -192,7 +202,10 @@ const ClientDashboard = ({ user, onLogout }) => {
       a.click();
       window.URL.revokeObjectURL(downloadUrl);
       document.body.removeChild(a);
+
+      console.log('ダウンロード成功:', filename, blob.size, 'bytes');
     } catch (err) {
+      console.error('ダウンロードエラー:', err);
       setError('ダウンロードに失敗しました: ' + err.message);
     }
   };

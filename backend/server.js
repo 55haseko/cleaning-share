@@ -1186,6 +1186,8 @@ app.get('/api/albums/:facilityId/:sessionId/download', authenticateToken, async 
   try {
     const { facilityId, sessionId } = req.params;
 
+    logger.info(`ダウンロード試行: userId=${req.user.id}, role=${req.user.role}, facilityId=${facilityId}, sessionId=${sessionId}`);
+
     // 権限チェック：admin、またはfacilityのclient/staff
     if (req.user.role !== 'admin') {
       if (req.user.role === 'client') {
@@ -1193,7 +1195,9 @@ app.get('/api/albums/:facilityId/:sessionId/download', authenticateToken, async 
           'SELECT id FROM facilities WHERE id = ? AND client_user_id = ?',
           [facilityId, req.user.id]
         );
+        logger.info(`クライアント権限チェック: facilityId=${facilityId}, userId=${req.user.id}, 結果=${facilities.length}件`);
         if (facilities.length === 0) {
+          logger.warn(`ダウンロード権限なし: userId=${req.user.id}, facilityId=${facilityId}`);
           return res.status(403).json({ error: 'この施設の写真をダウンロードする権限がありません' });
         }
       } else if (req.user.role === 'staff') {
