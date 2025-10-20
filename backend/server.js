@@ -599,6 +599,69 @@ app.put('/api/users/:userId/reset-password', authenticateToken, requireAdmin, as
   }
 });
 
+// ユーザー削除
+app.delete('/api/users/:userId', authenticateToken, requireAdmin, async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    const { userId } = req.params;
+
+    await connection.beginTransaction();
+
+    // ユーザーが存在するかチェック
+    const [users] = await connection.execute(
+      'SELECT id, role FROM users WHERE id = ?',
+      [userId]
+    );
+
+    if (users.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ error: 'ユーザーが見つかりません' });
+    }
+
+    // 自分自身は削除できない
+    if (parseInt(userId) === req.user.id) {
+      await connection.rollback();
+      return res.status(400).json({ error: '自分自身を削除することはできません' });
+    }
+
+    // 関連データを削除（外部キー制約に応じて）
+    // staff_facilitiesテーブルから削除
+    await connection.execute(
+      'DELETE FROM staff_facilities WHERE staff_user_id = ?',
+      [userId]
+    );
+
+    // スタッフが作成した清掃記録は残すが、staff_user_idをNULLに設定
+    await connection.execute(
+      'UPDATE cleaning_sessions SET staff_user_id = NULL WHERE staff_user_id = ?',
+      [userId]
+    );
+
+    // 領収書のuploaded_byをNULLに設定（photosテーブルにはuploaded_byカラムが存在しない）
+    await connection.execute(
+      'UPDATE receipts SET uploaded_by = NULL WHERE uploaded_by = ?',
+      [userId]
+    );
+
+    // ユーザーを削除
+    await connection.execute(
+      'DELETE FROM users WHERE id = ?',
+      [userId]
+    );
+
+    await connection.commit();
+
+    res.json({ message: 'ユーザーを削除しました' });
+    logger.info(`ユーザー削除: ユーザーID=${userId}`);
+  } catch (error) {
+    await connection.rollback();
+    logger.error('ユーザー削除エラー:', error);
+    res.status(500).json({ error: 'ユーザーの削除に失敗しました' });
+  } finally {
+    connection.release();
+  }
+});
+
 // ===== 施設管理 =====
 app.get('/api/facilities', authenticateToken, async (req, res) => {
   try {
