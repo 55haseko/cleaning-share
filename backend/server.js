@@ -1274,7 +1274,7 @@ app.get('/api/stats/recent-uploads', authenticateToken, requireAdmin, async (req
     const limit = parseInt(req.query.limit) || 10;
 
     // 最近のアップロード履歴を取得
-    const [uploads] = await pool.execute(
+    const [uploads] = await pool.query(
       `SELECT
         cs.id,
         cs.facility_id,
@@ -1282,12 +1282,10 @@ app.get('/api/stats/recent-uploads', authenticateToken, requireAdmin, async (req
         cs.created_at as uploaded_at,
         f.name as facility_name,
         u.name as staff_name,
-        COUNT(p.id) as photo_count
+        (SELECT COUNT(*) FROM photos p WHERE p.cleaning_session_id = cs.id) as photo_count
       FROM cleaning_sessions cs
       JOIN facilities f ON cs.facility_id = f.id
       LEFT JOIN users u ON cs.staff_user_id = u.id
-      LEFT JOIN photos p ON cs.id = p.cleaning_session_id
-      GROUP BY cs.id, cs.facility_id, cs.cleaning_date, cs.created_at, f.name, u.name
       ORDER BY cs.created_at DESC
       LIMIT ?`,
       [limit]
