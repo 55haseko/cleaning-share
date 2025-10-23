@@ -14,6 +14,7 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
   const [recentUploads, setRecentUploads] = useState([]);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showFacilityForm, setShowFacilityForm] = useState(false);
+  const [showEditUserForm, setShowEditUserForm] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -21,6 +22,15 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
   const [newUser, setNewUser] = useState({
     email: '',
     password: '',
+    name: '',
+    role: 'staff',
+    facilityIds: []
+  });
+
+  // ユーザー編集フォームの状態
+  const [editUser, setEditUser] = useState({
+    id: null,
+    email: '',
     name: '',
     role: 'staff',
     facilityIds: []
@@ -117,6 +127,34 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
       }
     } else if (newPassword) {
       alert('パスワードは6文字以上である必要があります');
+    }
+  };
+
+  const handleEditUser = (user) => {
+    setEditUser({
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      facilityIds: user.facilities ? user.facilities.map(f => f.id) : []
+    });
+    setShowEditUserForm(true);
+  };
+
+  const handleUpdateUser = async (e) => {
+    e.preventDefault();
+    try {
+      await usersApi.updateUser(editUser.id, {
+        name: editUser.name,
+        email: editUser.email,
+        role: editUser.role,
+        facilityIds: editUser.facilityIds
+      });
+      setShowEditUserForm(false);
+      await loadData();
+      alert('ユーザー情報を更新しました');
+    } catch (error) {
+      setError('ユーザー更新に失敗しました: ' + error.message);
     }
   };
 
@@ -739,6 +777,76 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
               </form>
             )}
 
+            {showEditUserForm && (
+              <form onSubmit={handleUpdateUser} style={styles.form}>
+                <h3>ユーザー情報編集</h3>
+                <div style={styles.formGrid}>
+                  <div style={styles.formGroup}>
+                    <label>メールアドレス*</label>
+                    <input
+                      type="email"
+                      value={editUser.email}
+                      onChange={(e) => setEditUser({ ...editUser, email: e.target.value })}
+                      required
+                      style={styles.input}
+                    />
+                  </div>
+                  <div style={styles.formGroup}>
+                    <label>名前*</label>
+                    <input
+                      type="text"
+                      value={editUser.name}
+                      onChange={(e) => setEditUser({ ...editUser, name: e.target.value })}
+                      required
+                      style={styles.input}
+                    />
+                  </div>
+                  <div style={styles.formGroup}>
+                    <label>ロール*</label>
+                    <select
+                      value={editUser.role}
+                      onChange={(e) => setEditUser({ ...editUser, role: e.target.value })}
+                      style={styles.select}
+                    >
+                      <option value="staff">スタッフ</option>
+                      <option value="client">クライアント</option>
+                      <option value="admin">管理者</option>
+                    </select>
+                  </div>
+                </div>
+
+                {editUser.role === 'staff' && (
+                  <div style={styles.formGroup}>
+                    <label>担当施設</label>
+                    <div style={styles.facilityList}>
+                      {facilities.map(facility => (
+                        <label key={facility.id} style={styles.checkboxLabel}>
+                          <input
+                            type="checkbox"
+                            checked={editUser.facilityIds.includes(facility.id)}
+                            onChange={(e) => {
+                              const facilityIds = e.target.checked
+                                ? [...editUser.facilityIds, facility.id]
+                                : editUser.facilityIds.filter(id => id !== facility.id);
+                              setEditUser({ ...editUser, facilityIds });
+                            }}
+                          />
+                          {facility.name}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div style={styles.formActions}>
+                  <button type="submit" style={styles.submitBtn}>更新</button>
+                  <button type="button" onClick={() => setShowEditUserForm(false)} style={styles.cancelBtn}>
+                    キャンセル
+                  </button>
+                </div>
+              </form>
+            )}
+
             {filteredUsers.length > 0 ? (
               <div style={styles.userList}>
                 <table style={styles.table}>
@@ -776,6 +884,9 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
                         </td>
                         <td>
                           <div style={styles.actions}>
+                            <button onClick={() => handleEditUser(user)} style={styles.actionBtnEdit}>
+                              編集
+                            </button>
                             <button onClick={() => handleResetPassword(user.id, user.name)} style={styles.actionBtn}>
                               パスワードリセット
                             </button>
@@ -1201,6 +1312,16 @@ const styles = {
     padding: '6px 12px',
     backgroundColor: '#ffc107',
     color: '#212529',
+    border: 'none',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    fontSize: '12px',
+    fontWeight: '600'
+  },
+  actionBtnEdit: {
+    padding: '6px 12px',
+    backgroundColor: '#007bff',
+    color: 'white',
     border: 'none',
     borderRadius: '4px',
     cursor: 'pointer',

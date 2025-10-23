@@ -130,7 +130,7 @@ const FacilitySelector = ({ facilities, onSelect, title = "施設を選択" }) =
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
           <input
             type="text"
-            placeholder="施設名、クライアント名、住所で検索..."
+            placeholder="施設名で検索..."
             value={searchQuery}
             onChange={(e) => {
               setSearchQuery(e.target.value);
@@ -146,24 +146,6 @@ const FacilitySelector = ({ facilities, onSelect, title = "施設を選択" }) =
             <Filter className="w-4 h-4 text-gray-600" />
             <span className="text-sm text-gray-600">並び替え:</span>
             <SortButton field="name">施設名</SortButton>
-            <SortButton field="client">クライアント</SortButton>
-            <SortButton field="address">住所</SortButton>
-          </div>
-
-          <div className="flex items-center gap-2 ml-4">
-            <span className="text-sm text-gray-600">グループ:</span>
-            <select
-              value={groupBy}
-              onChange={(e) => {
-                setGroupBy(e.target.value);
-                setCurrentPage(1);
-              }}
-              className="px-3 py-1 border border-gray-300 rounded-md text-sm"
-            >
-              <option value="none">なし</option>
-              <option value="client">クライアント別</option>
-              <option value="building">建物別</option>
-            </select>
           </div>
         </div>
 
