@@ -278,13 +278,9 @@ app.post('/api/auth/login', async (req, res) => {
     // ユーザーに関連する施設を取得
     let facilities = [];
     if (user.role === 'staff') {
-      const [staffFacilities] = await connection.execute(
-        `SELECT f.* FROM facilities f 
-         JOIN staff_facilities sf ON f.id = sf.facility_id 
-         WHERE sf.staff_user_id = ?`,
-        [user.id]
-      );
-      facilities = staffFacilities;
+      // スタッフは全施設にアクセス可能
+      const [allFacilities] = await connection.execute('SELECT * FROM facilities');
+      facilities = allFacilities;
     } else if (user.role === 'client') {
       const [clientFacilities] = await connection.execute(
         'SELECT * FROM facilities WHERE client_user_id = ?',
@@ -330,7 +326,7 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
 
     const [users] = await connection.execute(
       'SELECT id, email, name, role FROM users WHERE id = ? AND is_active = true',
-      [req.user.userId]
+      [req.user.id]
     );
 
     if (users.length === 0) {
@@ -342,13 +338,9 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
     // ユーザーに関連する施設を取得
     let facilities = [];
     if (user.role === 'staff') {
-      const [staffFacilities] = await connection.execute(
-        `SELECT f.* FROM facilities f
-         JOIN staff_facilities sf ON f.id = sf.facility_id
-         WHERE sf.staff_user_id = ?`,
-        [user.id]
-      );
-      facilities = staffFacilities;
+      // スタッフは全施設にアクセス可能
+      const [allFacilities] = await connection.execute('SELECT * FROM facilities');
+      facilities = allFacilities;
     } else if (user.role === 'client') {
       const [clientFacilities] = await connection.execute(
         'SELECT * FROM facilities WHERE client_user_id = ?',
@@ -430,11 +422,9 @@ app.get('/api/users', authenticateToken, requireAdmin, async (req, res) => {
     // 各ユーザーの施設情報も取得
     for (const user of users) {
       if (user.role === 'staff') {
+        // スタッフは全施設にアクセス可能
         const [facilities] = await pool.execute(
-          `SELECT f.id, f.name FROM facilities f 
-           JOIN staff_facilities sf ON f.id = sf.facility_id 
-           WHERE sf.staff_user_id = ?`,
-          [user.id]
+          'SELECT id, name FROM facilities'
         );
         user.facilities = facilities;
       } else if (user.role === 'client') {
@@ -675,19 +665,17 @@ app.get('/api/facilities', authenticateToken, async (req, res) => {
   try {
     let query;
     let params = [];
-    
+
     if (req.user.role === 'admin') {
       query = 'SELECT * FROM facilities';
     } else if (req.user.role === 'client') {
       query = 'SELECT * FROM facilities WHERE client_user_id = ?';
       params = [req.user.id];
     } else if (req.user.role === 'staff') {
-      query = `SELECT f.* FROM facilities f 
-               JOIN staff_facilities sf ON f.id = sf.facility_id 
-               WHERE sf.staff_user_id = ?`;
-      params = [req.user.id];
+      // スタッフは全施設にアクセス可能
+      query = 'SELECT * FROM facilities';
     }
-    
+
     const [facilities] = await pool.execute(query, params);
     res.json(facilities);
   } catch (error) {
@@ -837,7 +825,7 @@ app.post('/api/sessions', authenticateToken, async (req, res) => {
 });
 
 // ===== 写真アップロード（改善版） =====
-app.post('/api/photos/upload', authenticateToken, upload.array('photos', 20), async (req, res) => {
+app.post('/api/photos/upload', authenticateToken, upload.array('photos', 200), async (req, res) => {
   try {
     const { facilityId, sessionId, type } = req.body;
     const uploadedFiles = [];
@@ -917,15 +905,8 @@ app.get('/api/receipts/:facilityId', authenticateToken, async (req, res) => {
         if (facilities.length === 0) {
           return res.status(403).json({ error: 'この施設の領収書を閲覧する権限がありません' });
         }
-      } else if (req.user.role === 'staff') {
-        const [facilities] = await pool.execute(
-          'SELECT f.id FROM facilities f JOIN staff_facilities sf ON f.id = sf.facility_id WHERE f.id = ? AND sf.staff_user_id = ?',
-          [facilityId, req.user.id]
-        );
-        if (facilities.length === 0) {
-          return res.status(403).json({ error: 'この施設の領収書を閲覧する権限がありません' });
-        }
       }
+      // スタッフは全施設にアクセス可能なので権限チェック不要
     }
 
     let query = `
@@ -956,10 +937,10 @@ app.get('/api/receipts/:facilityId', authenticateToken, async (req, res) => {
 
     // パスをURLに変換
     const receiptsWithUrls = receipts.map(receipt => {
-      const relativePath = path.relative(STORAGE_ROOT, receipt.file_path);
+      const urlPath = receipt.file_path.replace(/^uploads_dev\//, '').replace(/\\/g, '/');
       return {
         ...receipt,
-        url: `/uploads/${relativePath.replace(/\\/g, '/')}`
+        url: `/uploads/${urlPath}`
       };
     });
 
@@ -971,7 +952,7 @@ app.get('/api/receipts/:facilityId', authenticateToken, async (req, res) => {
 });
 
 // 領収書アップロード
-app.post('/api/receipts/upload', authenticateToken, receiptUpload.array('receipts', 20), async (req, res) => {
+app.post('/api/receipts/upload', authenticateToken, receiptUpload.array('receipts', 200), async (req, res) => {
   try {
     const { facilityId, sessionId, month } = req.body;
     const uploadedFiles = [];
@@ -1058,6 +1039,120 @@ app.post('/api/monthly-checks/save', authenticateToken, async (req, res) => {
   }
 });
 
+// 写真削除エンドポイント（管理者のみ）
+app.delete('/api/photos/:photoId', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { photoId } = req.params;
+
+    // 写真情報を取得
+    const [photos] = await pool.execute(
+      'SELECT file_path, thumbnail_path FROM photos WHERE id = ?',
+      [photoId]
+    );
+
+    if (photos.length === 0) {
+      return res.status(404).json({ error: '写真が見つかりません' });
+    }
+
+    const photo = photos[0];
+
+    // ファイルを削除
+    try {
+      if (photo.file_path && fsSync.existsSync(photo.file_path)) {
+        await fs.unlink(photo.file_path);
+      }
+      if (photo.thumbnail_path && fsSync.existsSync(photo.thumbnail_path)) {
+        await fs.unlink(photo.thumbnail_path);
+      }
+    } catch (fileError) {
+      logger.error('ファイル削除エラー:', fileError);
+    }
+
+    // DBから削除
+    await pool.execute('DELETE FROM photos WHERE id = ?', [photoId]);
+
+    res.json({ message: '写真を削除しました' });
+    logger.info(`写真削除: photoId=${photoId}`);
+  } catch (error) {
+    logger.error('写真削除エラー:', error);
+    res.status(500).json({ error: '写真の削除に失敗しました' });
+  }
+});
+
+// セッション（アルバム）削除エンドポイント（管理者のみ）
+app.delete('/api/sessions/:sessionId', authenticateToken, requireAdmin, async (req, res) => {
+  const connection = await pool.getConnection();
+  try {
+    const { sessionId } = req.params;
+
+    await connection.beginTransaction();
+
+    // セッションに紐づく写真を取得
+    const [photos] = await connection.execute(
+      'SELECT file_path, thumbnail_path FROM photos WHERE cleaning_session_id = ?',
+      [sessionId]
+    );
+
+    // 写真ファイルを削除
+    for (const photo of photos) {
+      try {
+        if (photo.file_path && fsSync.existsSync(photo.file_path)) {
+          await fs.unlink(photo.file_path);
+        }
+        if (photo.thumbnail_path && fsSync.existsSync(photo.thumbnail_path)) {
+          await fs.unlink(photo.thumbnail_path);
+        }
+      } catch (fileError) {
+        logger.error('ファイル削除エラー:', fileError);
+      }
+    }
+
+    // DBから写真を削除
+    await connection.execute(
+      'DELETE FROM photos WHERE cleaning_session_id = ?',
+      [sessionId]
+    );
+
+    // 領収書も削除
+    const [receipts] = await connection.execute(
+      'SELECT file_path FROM receipts WHERE cleaning_session_id = ?',
+      [sessionId]
+    );
+
+    for (const receipt of receipts) {
+      try {
+        if (receipt.file_path && fsSync.existsSync(receipt.file_path)) {
+          await fs.unlink(receipt.file_path);
+        }
+      } catch (fileError) {
+        logger.error('領収書ファイル削除エラー:', fileError);
+      }
+    }
+
+    await connection.execute(
+      'DELETE FROM receipts WHERE cleaning_session_id = ?',
+      [sessionId]
+    );
+
+    // セッションを削除
+    await connection.execute(
+      'DELETE FROM cleaning_sessions WHERE id = ?',
+      [sessionId]
+    );
+
+    await connection.commit();
+
+    res.json({ message: 'アルバムを削除しました' });
+    logger.info(`アルバム削除: sessionId=${sessionId}, 写真数=${photos.length}`);
+  } catch (error) {
+    await connection.rollback();
+    logger.error('アルバム削除エラー:', error);
+    res.status(500).json({ error: 'アルバムの削除に失敗しました' });
+  } finally {
+    connection.release();
+  }
+});
+
 // ===== 月次点検状態取得 =====
 app.get('/api/monthly-checks/:facilityId', authenticateToken, async (req, res) => {
   try {
@@ -1103,7 +1198,7 @@ app.get('/api/monthly-checks/:facilityId', authenticateToken, async (req, res) =
 });
 
 // ===== テスト用アップロード（認証なし） =====
-app.post('/api/photos/upload-test', upload.array('photos', 20), async (req, res) => {
+app.post('/api/photos/upload-test', upload.array('photos', 200), async (req, res) => {
   try {
     const { facilityId, type, date } = req.body;
     const uploadedFiles = [];
@@ -1172,12 +1267,18 @@ app.get('/api/albums/:facilityId', authenticateToken, async (req, res) => {
       );
       
       // パスをURLに変換
-      session.photos = photos.map(photo => ({
-        ...photo,
-        url: `/uploads/${path.relative(STORAGE_ROOT, photo.file_path).replace(/\\/g, '/')}`,
-        thumbnailUrl: photo.thumbnail_path ? 
-          `/uploads/${path.relative(STORAGE_ROOT, photo.thumbnail_path).replace(/\\/g, '/')}` : null
-      }));
+      session.photos = photos.map(photo => {
+        // file_pathから STORAGE_ROOT 部分を削除してURLパスを生成
+        const urlPath = photo.file_path.replace(/^uploads_dev\//, '').replace(/\\/g, '/');
+        const thumbnailPath = photo.thumbnail_path ?
+          photo.thumbnail_path.replace(/^uploads_dev\//, '').replace(/\\/g, '/') : null;
+
+        return {
+          ...photo,
+          url: `/uploads/${urlPath}`,
+          thumbnailUrl: thumbnailPath ? `/uploads/${thumbnailPath}` : null
+        };
+      });
     }
     
     res.json(sessions);
@@ -1206,15 +1307,8 @@ app.get('/api/albums/:facilityId/:sessionId/download', authenticateToken, async 
           logger.warn(`ダウンロード権限なし: userId=${req.user.id}, facilityId=${facilityId}`);
           return res.status(403).json({ error: 'この施設の写真をダウンロードする権限がありません' });
         }
-      } else if (req.user.role === 'staff') {
-        const [facilities] = await pool.execute(
-          'SELECT f.id FROM facilities f INNER JOIN staff_facilities sf ON f.id = sf.facility_id WHERE f.id = ? AND sf.staff_user_id = ?',
-          [facilityId, req.user.id]
-        );
-        if (facilities.length === 0) {
-          return res.status(403).json({ error: 'この施設の写真をダウンロードする権限がありません' });
-        }
       }
+      // スタッフは全施設にアクセス可能なので権限チェック不要
     }
 
     // セッション情報と写真を取得
@@ -1293,8 +1387,8 @@ app.get('/api/monthly-checks', authenticateToken, async (req, res) => {
     let query;
     let params = [];
 
-    if (req.user.role === 'admin') {
-      // 管理者：全施設の月次チェック状況
+    if (req.user.role === 'admin' || req.user.role === 'staff') {
+      // 管理者・スタッフ：全施設の月次チェック状況
       query = `
         SELECT
           f.id as facility_id,
@@ -1310,25 +1404,6 @@ app.get('/api/monthly-checks', authenticateToken, async (req, res) => {
         ORDER BY f.name
       `;
       params = [currentMonth, currentMonth, currentMonth, currentMonth];
-    } else if (req.user.role === 'staff') {
-      // スタッフ：担当施設の月次チェック状況
-      query = `
-        SELECT
-          f.id as facility_id,
-          f.name as facility_name,
-          f.address,
-          MAX(CASE WHEN cs.ventilation_checked = 1 AND DATE_FORMAT(cs.cleaning_date, '%Y-%m') = ? THEN cs.cleaning_date END) as last_ventilation_check,
-          MAX(CASE WHEN cs.air_filter_checked = 1 AND DATE_FORMAT(cs.cleaning_date, '%Y-%m') = ? THEN cs.cleaning_date END) as last_air_filter_check,
-          (MAX(CASE WHEN cs.ventilation_checked = 1 AND DATE_FORMAT(cs.cleaning_date, '%Y-%m') = ? THEN 1 ELSE 0 END)) as ventilation_done,
-          (MAX(CASE WHEN cs.air_filter_checked = 1 AND DATE_FORMAT(cs.cleaning_date, '%Y-%m') = ? THEN 1 ELSE 0 END)) as air_filter_done
-        FROM facilities f
-        JOIN staff_facilities sf ON f.id = sf.facility_id
-        LEFT JOIN cleaning_sessions cs ON f.id = cs.facility_id
-        WHERE sf.staff_user_id = ?
-        GROUP BY f.id, f.name, f.address
-        ORDER BY f.name
-      `;
-      params = [currentMonth, currentMonth, currentMonth, currentMonth, req.user.id];
     } else {
       return res.status(403).json({ error: 'アクセス権限がありません' });
     }

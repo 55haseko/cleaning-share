@@ -5,9 +5,12 @@ import React, { useState, useEffect } from 'react';
 import { usersApi } from '../api/users.js';
 import { facilitiesApi } from '../api/facilities.js';
 import { statsApi } from '../api/stats.js';
+import { albumsApi } from '../api/albums.js';
+import { photosApi } from '../api/photos.js';
+import { receiptsApi } from '../api/receipts.js';
 
 const AdminDashboard = ({ currentUser, onLogout }) => {
-  const [activeTab, setActiveTab] = useState('overview'); // overview, facilities, users, reports
+  const [activeTab, setActiveTab] = useState('overview'); // overview, facilities, users, albums, reports
   const [users, setUsers] = useState([]);
   const [facilities, setFacilities] = useState([]);
   const [stats, setStats] = useState(null);
@@ -54,6 +57,15 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
   const [userSortBy, setUserSortBy] = useState('name'); // name, email, role, created_at
   const [userSortOrder, setUserSortOrder] = useState('asc'); // asc, desc
 
+  // アルバム管理の状態
+  const [albums, setAlbums] = useState([]);
+  const [selectedAlbumFacility, setSelectedAlbumFacility] = useState(null);
+  const [albumSearch, setAlbumSearch] = useState('');
+  const [albumPhotos, setAlbumPhotos] = useState([]);
+  const [selectedSession, setSelectedSession] = useState(null);
+  const [albumViewTab, setAlbumViewTab] = useState('photos'); // 'photos' or 'receipts'
+  const [receipts, setReceipts] = useState([]);
+
   useEffect(() => {
     loadData();
   }, [activeTab]);
@@ -85,6 +97,10 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
           facilitiesApi.getList()
         ]);
         setUsers(usersData);
+        setFacilities(facilitiesData);
+      } else if (activeTab === 'albums') {
+        // アルバム管理タブ
+        const facilitiesData = await facilitiesApi.getList();
         setFacilities(facilitiesData);
       }
 
@@ -238,6 +254,70 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
   };
 
   const clientUsers = users.filter(u => u.role === 'client');
+
+  // ===== アルバム管理ハンドラー =====
+  const loadAlbumsByFacility = async (facilityId) => {
+    try {
+      setLoading(true);
+      const [albumsData, receiptsData] = await Promise.all([
+        albumsApi.getByFacility(facilityId),
+        receiptsApi.getList(facilityId)
+      ]);
+      setAlbums(albumsData);
+      setReceipts(receiptsData);
+      setSelectedAlbumFacility(facilityId);
+      setAlbumViewTab('photos'); // デフォルトで写真タブ
+    } catch (error) {
+      setError('データの読み込みに失敗しました: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadAlbumPhotos = async (facilityId, sessionId) => {
+    try {
+      setLoading(true);
+      const session = albums.find(a => a.id === sessionId);
+      if (session && session.photos) {
+        setAlbumPhotos(session.photos);
+        setSelectedSession(session);
+      }
+    } catch (error) {
+      setError('写真の読み込みに失敗しました: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeletePhoto = async (photoId) => {
+    if (!window.confirm('この写真を削除しますか?')) return;
+    try {
+      await photosApi.delete(photoId);
+      setAlbumPhotos(albumPhotos.filter(p => p.id !== photoId));
+      alert('写真を削除しました');
+    } catch (error) {
+      setError('写真の削除に失敗しました: ' + error.message);
+    }
+  };
+
+  const handleDeleteSession = async (sessionId) => {
+    if (!window.confirm('このアルバムを削除しますか? すべての写真が削除されます。')) return;
+    try {
+      await albumsApi.deleteSession(sessionId);
+      setAlbums(albums.filter(a => a.id !== sessionId));
+      alert('アルバムを削除しました');
+    } catch (error) {
+      setError('アルバムの削除に失敗しました: ' + error.message);
+    }
+  };
+
+  const handleDownloadAlbum = async (facilityId, sessionId) => {
+    try {
+      await albumsApi.download(facilityId, sessionId);
+    } catch (error) {
+      setError('ダウンロードに失敗しました: ' + error.message);
+    }
+  };
 
   // ===== 施設のフィルタリングとソート =====
   const getFilteredAndSortedFacilities = () => {
@@ -395,6 +475,12 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
           onClick={() => setActiveTab('users')}
         >
           ユーザー管理
+        </button>
+        <button
+          style={activeTab === 'albums' ? styles.tabActive : styles.tab}
+          onClick={() => setActiveTab('albums')}
+        >
+          アルバム管理
         </button>
         <button
           style={activeTab === 'reports' ? styles.tabActive : styles.tab}
@@ -913,6 +999,432 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
                   </>
                 ) : (
                   <p>ユーザーが登録されていません</p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* アルバム管理タブ */}
+        {activeTab === 'albums' && (
+          <div>
+            <h2 style={styles.sectionTitle}>アルバム管理</h2>
+
+            {!selectedAlbumFacility ? (
+              /* 施設選択画面 */
+              <div>
+                <div style={styles.filterBar}>
+                  <div style={styles.searchBox}>
+                    <span style={styles.searchIcon}>🔍</span>
+                    <input
+                      type="text"
+                      placeholder="施設名で検索..."
+                      value={albumSearch}
+                      onChange={(e) => setAlbumSearch(e.target.value)}
+                      style={styles.searchInput}
+                    />
+                  </div>
+                </div>
+
+                <div style={styles.facilityGrid}>
+                  {facilities
+                    .filter(f => f.name?.toLowerCase().includes(albumSearch.toLowerCase()))
+                    .map(facility => (
+                      <div key={facility.id} style={styles.facilityCard}>
+                        <div style={styles.facilityHeader}>
+                          <h3 style={styles.facilityName}>{facility.name}</h3>
+                          <span style={styles.facilityId}>ID: {facility.id}</span>
+                        </div>
+                        {facility.address && (
+                          <p style={styles.facilityAddress}>📍 {facility.address}</p>
+                        )}
+                        <div style={styles.facilityActions}>
+                          <button
+                            onClick={() => loadAlbumsByFacility(facility.id)}
+                            style={styles.editBtn}
+                          >
+                            アルバムを見る
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            ) : !selectedSession ? (
+              /* アルバム一覧画面 */
+              <div>
+                <div style={{marginBottom: '20px'}}>
+                  <button
+                    onClick={() => {
+                      setSelectedAlbumFacility(null);
+                      setAlbums([]);
+                      setReceipts([]);
+                      setAlbumViewTab('photos');
+                    }}
+                    style={styles.cancelBtn}
+                  >
+                    ← 施設一覧に戻る
+                  </button>
+                </div>
+
+                <h3 style={{marginBottom: '20px'}}>
+                  {facilities.find(f => f.id === selectedAlbumFacility)?.name}
+                </h3>
+
+                {/* タブ切り替え */}
+                <div style={{marginBottom: '20px', borderBottom: '2px solid #e5e7eb'}}>
+                  <div style={{display: 'flex', gap: '16px'}}>
+                    <button
+                      onClick={() => setAlbumViewTab('photos')}
+                      style={{
+                        padding: '12px 24px',
+                        border: 'none',
+                        background: 'none',
+                        cursor: 'pointer',
+                        borderBottom: albumViewTab === 'photos' ? '3px solid #2563eb' : 'none',
+                        color: albumViewTab === 'photos' ? '#2563eb' : '#6b7280',
+                        fontWeight: albumViewTab === 'photos' ? '600' : '400',
+                        fontSize: '16px'
+                      }}
+                    >
+                      清掃記録 ({albums.length})
+                    </button>
+                    <button
+                      onClick={() => setAlbumViewTab('receipts')}
+                      style={{
+                        padding: '12px 24px',
+                        border: 'none',
+                        background: 'none',
+                        cursor: 'pointer',
+                        borderBottom: albumViewTab === 'receipts' ? '3px solid #2563eb' : 'none',
+                        color: albumViewTab === 'receipts' ? '#2563eb' : '#6b7280',
+                        fontWeight: albumViewTab === 'receipts' ? '600' : '400',
+                        fontSize: '16px'
+                      }}
+                    >
+                      領収書 ({receipts.length})
+                    </button>
+                  </div>
+                </div>
+
+                {albumViewTab === 'photos' ? (
+                  albums.length === 0 ? (
+                  <div style={styles.emptyState}>
+                    <p>アルバムがありません</p>
+                  </div>
+                ) : (
+                  <div style={{display: 'grid', gap: '16px'}}>
+                    {albums.map(album => (
+                      <div key={album.id} style={{...styles.facilityCard, cursor: 'pointer'}}>
+                        <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'start'}}>
+                          <div style={{flex: 1}} onClick={() => loadAlbumPhotos(selectedAlbumFacility, album.id)}>
+                            <h4 style={{margin: 0, marginBottom: '8px'}}>
+                              {formatDate(album.cleaning_date)}
+                            </h4>
+                            <p style={{margin: 0, color: '#666', fontSize: '14px'}}>
+                              写真: {album.photo_count || 0}枚
+                            </p>
+                            {album.uploaded_by && (
+                              <p style={{margin: 0, color: '#999', fontSize: '13px', marginTop: '4px'}}>
+                                アップロード: {album.uploaded_by}
+                              </p>
+                            )}
+                            {(album.ventilation_checked || album.air_filter_checked) && (
+                              <div style={{marginTop: '8px', fontSize: '13px', color: '#28a745'}}>
+                                ✓ 月次点検済み
+                                {album.ventilation_checked && ' (換気扇)'}
+                                {album.air_filter_checked && ' (エアコン)'}
+                              </div>
+                            )}
+                          </div>
+                          <div style={{display: 'flex', gap: '8px'}}>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDownloadAlbum(selectedAlbumFacility, album.id);
+                              }}
+                              style={{...styles.editBtn, padding: '8px 16px'}}
+                            >
+                              ダウンロード
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteSession(album.id);
+                              }}
+                              style={{...styles.deleteBtn, padding: '8px 16px'}}
+                            >
+                              削除
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )
+                ) : (
+                  /* 領収書タブ */
+                  receipts.length === 0 ? (
+                    <div style={styles.emptyState}>
+                      <p>領収書がありません</p>
+                    </div>
+                  ) : (
+                    <div style={{display: 'grid', gap: '24px'}}>
+                      {/* 月別にグループ化して表示 */}
+                      {Object.entries(
+                        receipts.reduce((acc, receipt) => {
+                          const month = receipt.month;
+                          if (!acc[month]) acc[month] = [];
+                          acc[month].push(receipt);
+                          return acc;
+                        }, {})
+                      )
+                        .sort(([a], [b]) => b.localeCompare(a))
+                        .map(([month, monthReceipts]) => (
+                          <div key={month}>
+                            <h4 style={{fontSize: '18px', fontWeight: '600', marginBottom: '12px'}}>
+                              {new Date(month + '-01').toLocaleDateString('ja-JP', {
+                                year: 'numeric',
+                                month: 'long'
+                              })}
+                            </h4>
+                            <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '16px'}}>
+                              {monthReceipts.map(receipt => {
+                                const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(receipt.original_name);
+                                const isPDF = /\.pdf$/i.test(receipt.original_name);
+                                const imageUrl = receipt.url;
+                                const fullUrl = imageUrl.startsWith('http')
+                                  ? imageUrl
+                                  : `${process.env.REACT_APP_API_URL?.replace('/api', '') || 'http://localhost:4001'}${imageUrl}`;
+
+                                return (
+                                  <div key={receipt.id} style={{position: 'relative', paddingBottom: '100%', backgroundColor: '#f0f0f0', borderRadius: '8px', overflow: 'hidden'}}>
+                                    {isImage ? (
+                                      <img
+                                        src={fullUrl}
+                                        alt={receipt.original_name}
+                                        onClick={() => window.open(fullUrl, '_blank')}
+                                        style={{
+                                          position: 'absolute',
+                                          top: 0,
+                                          left: 0,
+                                          width: '100%',
+                                          height: '100%',
+                                          objectFit: 'cover',
+                                          cursor: 'pointer'
+                                        }}
+                                      />
+                                    ) : isPDF ? (
+                                      <div
+                                        onClick={() => window.open(fullUrl, '_blank')}
+                                        style={{
+                                          position: 'absolute',
+                                          top: 0,
+                                          left: 0,
+                                          width: '100%',
+                                          height: '100%',
+                                          cursor: 'pointer',
+                                          overflow: 'hidden'
+                                        }}
+                                      >
+                                        <iframe
+                                          src={`${fullUrl}#toolbar=0&navpanes=0&scrollbar=0`}
+                                          style={{
+                                            width: '100%',
+                                            height: '100%',
+                                            border: 'none',
+                                            pointerEvents: 'none'
+                                          }}
+                                          title={receipt.original_name}
+                                        />
+                                        <div style={{
+                                          position: 'absolute',
+                                          top: 0,
+                                          left: 0,
+                                          width: '100%',
+                                          height: '100%',
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'center',
+                                          backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                                          pointerEvents: 'none'
+                                        }}>
+                                          <div style={{
+                                            backgroundColor: 'rgba(0,0,0,0.5)',
+                                            color: 'white',
+                                            padding: '8px 16px',
+                                            borderRadius: '8px',
+                                            fontSize: '14px',
+                                            fontWeight: '600'
+                                          }}>
+                                            📄 PDF
+                                          </div>
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <a
+                                        href={fullUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        style={{
+                                          position: 'absolute',
+                                          top: 0,
+                                          left: 0,
+                                          width: '100%',
+                                          height: '100%',
+                                          display: 'flex',
+                                          flexDirection: 'column',
+                                          alignItems: 'center',
+                                          justifyContent: 'center',
+                                          backgroundColor: '#3b82f6',
+                                          color: 'white',
+                                          textDecoration: 'none'
+                                        }}
+                                      >
+                                        <div style={{fontSize: '48px', marginBottom: '8px'}}>📄</div>
+                                        <div style={{fontSize: '12px', textAlign: 'center', padding: '0 8px'}}>
+                                          {receipt.original_name}
+                                        </div>
+                                      </a>
+                                    )}
+                                    <div style={{
+                                      position: 'absolute',
+                                      bottom: '8px',
+                                      left: '8px',
+                                      right: '8px',
+                                      backgroundColor: 'rgba(0,0,0,0.7)',
+                                      color: 'white',
+                                      padding: '4px 8px',
+                                      borderRadius: '4px',
+                                      fontSize: '11px',
+                                      whiteSpace: 'nowrap',
+                                      overflow: 'hidden',
+                                      textOverflow: 'ellipsis'
+                                    }}>
+                                      {receipt.original_name}
+                                    </div>
+                                    <div style={{
+                                      position: 'absolute',
+                                      top: '8px',
+                                      right: '8px'
+                                    }}>
+                                      <a
+                                        href={fullUrl}
+                                        download
+                                        onClick={(e) => e.stopPropagation()}
+                                        style={{
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'center',
+                                          width: '32px',
+                                          height: '32px',
+                                          backgroundColor: 'rgba(0,0,0,0.6)',
+                                          borderRadius: '50%',
+                                          color: 'white',
+                                          textDecoration: 'none',
+                                          fontSize: '16px'
+                                        }}
+                                      >
+                                        ↓
+                                      </a>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  )
+                )}
+              </div>
+            ) : (
+              /* 写真一覧画面 */
+              <div>
+                <div style={{marginBottom: '20px'}}>
+                  <button
+                    onClick={() => {
+                      setSelectedSession(null);
+                      setAlbumPhotos([]);
+                    }}
+                    style={styles.cancelBtn}
+                  >
+                    ← アルバム一覧に戻る
+                  </button>
+                </div>
+
+                <h3 style={{marginBottom: '20px'}}>
+                  {formatDate(selectedSession.cleaning_date)} の写真
+                </h3>
+
+                {albumPhotos.length === 0 ? (
+                  <div style={styles.emptyState}>
+                    <p>写真がありません</p>
+                  </div>
+                ) : (
+                  <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '16px'}}>
+                    {albumPhotos.map(photo => {
+                      // URLを構築（既にフルURLの場合はそのまま使用）
+                      const imageUrl = photo.thumbnailUrl || photo.url;
+                      const fullUrl = imageUrl.startsWith('http')
+                        ? imageUrl
+                        : `${process.env.REACT_APP_API_URL?.replace('/api', '') || 'http://localhost:4001'}${imageUrl}`;
+
+                      return (
+                      <div key={photo.id} style={{position: 'relative', paddingBottom: '100%', backgroundColor: '#f0f0f0', borderRadius: '8px', overflow: 'hidden'}}>
+                        <img
+                          src={fullUrl}
+                          alt=""
+                          onClick={() => window.open(fullUrl.replace('/thumbnails/', '/'), '_blank')}
+                          style={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            width: '100%',
+                            height: '100%',
+                            objectFit: 'cover',
+                            cursor: 'pointer'
+                          }}
+                        />
+                        <div style={{
+                          position: 'absolute',
+                          top: '8px',
+                          left: '8px',
+                          backgroundColor: photo.type === 'before' ? '#dc3545' : '#28a745',
+                          color: 'white',
+                          padding: '4px 8px',
+                          borderRadius: '4px',
+                          fontSize: '12px',
+                          fontWeight: '600'
+                        }}>
+                          {photo.type === 'before' ? '清掃前' : '清掃後'}
+                        </div>
+                        <div style={{
+                          position: 'absolute',
+                          top: '8px',
+                          right: '8px'
+                        }}>
+                          <button
+                            onClick={() => handleDeletePhoto(photo.id)}
+                            style={{
+                              backgroundColor: '#dc3545',
+                              color: 'white',
+                              border: 'none',
+                              borderRadius: '50%',
+                              width: '32px',
+                              height: '32px',
+                              cursor: 'pointer',
+                              fontSize: '16px',
+                              fontWeight: 'bold'
+                            }}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      </div>
+                      );
+                    })}
+                  </div>
                 )}
               </div>
             )}

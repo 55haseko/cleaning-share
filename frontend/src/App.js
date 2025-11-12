@@ -418,8 +418,8 @@ const ClientDashboard = ({ user, onLogout }) => {
                   <p className="text-gray-600">この施設の領収書はまだ登録されていません。</p>
                 </div>
               ) : (
-                <div className="space-y-4">
-                  {/* 月別にグループ化して表示 */}
+                <div className="space-y-6">
+                  {/* 月別にグループ化して画像として表示 */}
                   {Object.entries(
                     receipts.reduce((acc, receipt) => {
                       const month = receipt.month;
@@ -430,42 +430,73 @@ const ClientDashboard = ({ user, onLogout }) => {
                   )
                     .sort(([a], [b]) => b.localeCompare(a))
                     .map(([month, monthReceipts]) => (
-                      <div key={month} className="border border-gray-200 rounded-lg p-4">
+                      <div key={month}>
                         <h3 className="font-semibold text-gray-900 mb-3">
                           {new Date(month + '-01').toLocaleDateString('ja-JP', {
                             year: 'numeric',
                             month: 'long'
                           })}
                         </h3>
-                        <div className="space-y-2">
-                          {monthReceipts.map(receipt => (
-                            <a
-                              key={receipt.id}
-                              href={receipt.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
-                            >
-                              <div className="flex items-center gap-3">
-                                <FileText className="w-5 h-5 text-blue-600" />
-                                <div>
-                                  <p className="text-sm font-medium text-gray-900">
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                          {monthReceipts.map(receipt => {
+                            const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(receipt.original_name);
+                            const isPDF = /\.pdf$/i.test(receipt.original_name);
+                            return (
+                              <div key={receipt.id} className="relative group">
+                                {isImage ? (
+                                  <img
+                                    src={receipt.url}
+                                    alt={receipt.original_name}
+                                    onClick={() => window.open(receipt.url, '_blank')}
+                                    className="w-full h-32 object-cover rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
+                                  />
+                                ) : isPDF ? (
+                                  <div
+                                    onClick={() => window.open(receipt.url, '_blank')}
+                                    className="relative w-full h-32 rounded-lg overflow-hidden cursor-pointer"
+                                  >
+                                    <iframe
+                                      src={`${receipt.url}#toolbar=0&navpanes=0&scrollbar=0`}
+                                      className="w-full h-full border-none pointer-events-none"
+                                      title={receipt.original_name}
+                                    />
+                                    <div className="absolute inset-0 flex items-center justify-center bg-blue-600 bg-opacity-10 pointer-events-none">
+                                      <div className="bg-black bg-opacity-50 text-white px-3 py-1.5 rounded-lg text-sm font-semibold">
+                                        📄 PDF
+                                      </div>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <a
+                                    href={receipt.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex flex-col items-center justify-center w-full h-32 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                                  >
+                                    <FileText className="w-8 h-8 text-blue-600 mb-2" />
+                                    <span className="text-xs text-gray-600 text-center px-2 truncate max-w-full">
+                                      {receipt.original_name}
+                                    </span>
+                                  </a>
+                                )}
+                                <div className="absolute bottom-2 left-2 right-2">
+                                  <div className="text-xs bg-black bg-opacity-50 text-white px-2 py-1 rounded truncate">
                                     {receipt.original_name}
-                                  </p>
-                                  <p className="text-xs text-gray-500">
-                                    {new Date(receipt.uploaded_at).toLocaleDateString('ja-JP')}
-                                    {receipt.uploaded_by_name && ` • ${receipt.uploaded_by_name}`}
-                                  </p>
+                                  </div>
+                                </div>
+                                <div className="absolute top-2 right-2">
+                                  <a
+                                    href={receipt.url}
+                                    download
+                                    className="p-1 bg-black bg-opacity-50 rounded-full hover:bg-opacity-70 transition-colors"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <Download className="w-4 h-4 text-white" />
+                                  </a>
                                 </div>
                               </div>
-                              <div className="flex items-center gap-2">
-                                <span className="text-xs text-gray-500">
-                                  {(receipt.file_size / 1024).toFixed(0)} KB
-                                </span>
-                                <Download className="w-4 h-4 text-gray-400" />
-                              </div>
-                            </a>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     ))}

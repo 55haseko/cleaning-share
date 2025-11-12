@@ -426,7 +426,7 @@ const StaffDashboardNew = ({ user, onLogout }) => {
                         onPhotosChange={setBeforePhotos}
                         photoType="before"
                         title="清掃前の写真"
-                        maxPhotos={20}
+                        maxPhotos={200}
                       />
                     </div>
                     <div>
@@ -435,7 +435,7 @@ const StaffDashboardNew = ({ user, onLogout }) => {
                         onPhotosChange={setAfterPhotos}
                         photoType="after"
                         title="清掃後の写真"
-                        maxPhotos={20}
+                        maxPhotos={200}
                       />
                     </div>
                   </div>

@@ -56,8 +56,8 @@ export const photosApi = {
     }));
   },
 
-  // 写真削除
-  async deletePhoto(photoId) {
+  // 写真削除（管理者のみ）
+  async delete(photoId) {
     return await apiClient.delete(`/photos/${photoId}`);
   }
 };

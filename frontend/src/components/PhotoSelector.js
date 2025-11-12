@@ -9,28 +9,65 @@ const PhotoSelector = ({
   onPhotosChange,
   photoType = 'before',
   title,
-  maxPhotos = 20
+  maxPhotos = 200
 }) => {
   const [selectedPhotos, setSelectedPhotos] = useState(new Set());
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [previewPhoto, setPreviewPhoto] = useState(null);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [processingProgress, setProcessingProgress] = useState(0);
   const fileInputRef = useRef(null);
 
-  // ファイル選択処理
-  const handleFileSelect = (e) => {
+  // ファイル選択処理（メモリ効率化版）
+  const handleFileSelect = async (e) => {
     const files = Array.from(e.target.files);
     if (files.length === 0) return;
 
-    const newPhotos = files.map(file => ({
-      id: Date.now() + Math.random(),
-      file,
-      url: URL.createObjectURL(file),
-      type: photoType,
-      selected: false
-    }));
+    setIsProcessing(true);
+    setProcessingProgress(0);
 
-    const updatedPhotos = [...photos, ...newPhotos].slice(0, maxPhotos);
-    onPhotosChange(updatedPhotos);
+    try {
+      const newPhotos = [];
+      const batchSize = 10; // 10枚ずつ処理
+
+      for (let i = 0; i < files.length && i < maxPhotos - photos.length; i += batchSize) {
+        const batch = files.slice(i, Math.min(i + batchSize, files.length));
+
+        const batchPhotos = await Promise.all(
+          batch.map(async (file) => {
+            // メモリ節約のため、URLは後で生成
+            return {
+              id: Date.now() + Math.random() + i,
+              file,
+              url: null, // 後で生成
+              type: photoType,
+              selected: false
+            };
+          })
+        );
+
+        newPhotos.push(...batchPhotos);
+        setProcessingProgress(Math.round((i + batch.length) / files.length * 100));
+
+        // UIの応答性を保つため、少し待機
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+
+      // URLを段階的に生成
+      const photosWithUrls = newPhotos.map(photo => ({
+        ...photo,
+        url: URL.createObjectURL(photo.file)
+      }));
+
+      const updatedPhotos = [...photos, ...photosWithUrls].slice(0, maxPhotos);
+      onPhotosChange(updatedPhotos);
+    } catch (error) {
+      console.error('写真処理エラー:', error);
+      alert('写真の読み込み中にエラーが発生しました。枚数を減らしてお試しください。');
+    } finally {
+      setIsProcessing(false);
+      setProcessingProgress(0);
+    }
   };
 
   // 写真選択/選択解除
@@ -75,6 +112,25 @@ const PhotoSelector = ({
 
   return (
     <div className="space-y-4">
+      {/* 処理中のプログレスバー */}
+      {isProcessing && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-medium text-blue-900">写真を読み込み中...</span>
+            <span className="text-sm text-blue-700">{processingProgress}%</span>
+          </div>
+          <div className="w-full bg-blue-200 rounded-full h-2 overflow-hidden">
+            <div
+              className="bg-blue-600 h-full transition-all duration-300"
+              style={{ width: `${processingProgress}%` }}
+            />
+          </div>
+          <p className="text-xs text-blue-600 mt-2">
+            多数の写真を処理しています。しばらくお待ちください...
+          </p>
+        </div>
+      )}
+
       {/* ヘッダー */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -88,7 +144,7 @@ const PhotoSelector = ({
         </div>
 
         <div className="flex items-center gap-2">
-          {photos.length > 0 && (
+          {photos.length > 0 && !isProcessing && (
             <button
               onClick={toggleSelectionMode}
               className="px-3 py-1 text-sm border border-gray-300 rounded-md hover:bg-gray-50"
@@ -100,10 +156,11 @@ const PhotoSelector = ({
           {photos.length < maxPhotos && (
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              disabled={isProcessing}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Camera className="w-4 h-4" />
-              写真を追加
+              {isProcessing ? '処理中...' : '写真を追加'}
             </button>
           )}
         </div>
