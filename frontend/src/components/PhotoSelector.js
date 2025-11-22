@@ -3,6 +3,8 @@
 
 import React, { useState, useRef } from 'react';
 import { Camera, Upload, X, Check, CheckCircle, Circle, Trash2, Eye } from 'lucide-react';
+import { compressImages } from '../utils/imageCompression.js';
+import LazyImage from './LazyImage.js';
 
 const PhotoSelector = ({
   photos = [],
@@ -18,7 +20,7 @@ const PhotoSelector = ({
   const [processingProgress, setProcessingProgress] = useState(0);
   const fileInputRef = useRef(null);
 
-  // ファイル選択処理（メモリ効率化版）
+  // ファイル選択処理（圧縮対応版）
   const handleFileSelect = async (e) => {
     const files = Array.from(e.target.files);
     if (files.length === 0) return;
@@ -27,40 +29,50 @@ const PhotoSelector = ({
     setProcessingProgress(0);
 
     try {
-      const newPhotos = [];
-      const batchSize = 10; // 10枚ずつ処理
+      // 選択可能な枚数を制限
+      const availableSlots = maxPhotos - photos.length;
+      const filesToProcess = files.slice(0, availableSlots);
 
-      for (let i = 0; i < files.length && i < maxPhotos - photos.length; i += batchSize) {
-        const batch = files.slice(i, Math.min(i + batchSize, files.length));
-
-        const batchPhotos = await Promise.all(
-          batch.map(async (file) => {
-            // メモリ節約のため、URLは後で生成
-            return {
-              id: Date.now() + Math.random() + i,
-              file,
-              url: null, // 後で生成
-              type: photoType,
-              selected: false
-            };
-          })
-        );
-
-        newPhotos.push(...batchPhotos);
-        setProcessingProgress(Math.round((i + batch.length) / files.length * 100));
-
-        // UIの応答性を保つため、少し待機
-        await new Promise(resolve => setTimeout(resolve, 10));
+      if (files.length > availableSlots) {
+        alert(`選択可能な写真は残り${availableSlots}枚です。${files.length - availableSlots}枚は無視されます。`);
       }
 
-      // URLを段階的に生成
-      const photosWithUrls = newPhotos.map(photo => ({
-        ...photo,
-        url: URL.createObjectURL(photo.file)
+      // 画像を圧縮（メモリ使用量を94%削減）
+      const compressedFiles = await compressImages(
+        filesToProcess,
+        (current, total) => {
+          // 圧縮の進捗: 0-70%
+          const progress = Math.round((current / total) * 70);
+          setProcessingProgress(progress);
+        }
+      );
+
+      setProcessingProgress(75);
+
+      // 圧縮後の画像からプレビューURLを生成
+      const newPhotos = compressedFiles.map((file, index) => ({
+        id: Date.now() + Math.random() + index,
+        file,
+        url: URL.createObjectURL(file),
+        type: photoType,
+        selected: false
       }));
 
-      const updatedPhotos = [...photos, ...photosWithUrls].slice(0, maxPhotos);
+      setProcessingProgress(90);
+
+      const updatedPhotos = [...photos, ...newPhotos].slice(0, maxPhotos);
       onPhotosChange(updatedPhotos);
+
+      setProcessingProgress(100);
+
+      // 圧縮結果の統計を表示（開発用）
+      const originalSize = filesToProcess.reduce((sum, f) => sum + f.size, 0);
+      const compressedSize = compressedFiles.reduce((sum, f) => sum + f.size, 0);
+      const reduction = ((originalSize - compressedSize) / originalSize * 100).toFixed(1);
+
+      console.log(`[写真選択] ${filesToProcess.length}枚を追加`);
+      console.log(`[写真選択] 圧縮前: ${(originalSize / 1024 / 1024).toFixed(2)}MB → 圧縮後: ${(compressedSize / 1024 / 1024).toFixed(2)}MB (${reduction}%削減)`);
+
     } catch (error) {
       console.error('写真処理エラー:', error);
       alert('写真の読み込み中にエラーが発生しました。枚数を減らしてお試しください。');
@@ -220,11 +232,11 @@ const PhotoSelector = ({
         <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3">
           {photos.map(photo => (
             <div key={photo.id} className="relative group aspect-square">
-              {/* 写真 */}
-              <img
+              {/* 写真（遅延ローディング対応） */}
+              <LazyImage
                 src={photo.url}
                 alt=""
-                className="w-full h-full object-cover rounded-lg"
+                className="w-full h-full"
               />
 
               {/* オーバーレイ */}

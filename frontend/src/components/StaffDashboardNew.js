@@ -12,6 +12,8 @@ import { photosApi } from '../api/photos.js';
 import { receiptsApi } from '../api/receipts.js';
 import { monthlyCheckApi } from '../api/monthlyCheck.js';
 import PhotoSelector from './PhotoSelector.js';
+import { batchUploadPhotos, retryFailedBatches } from '../utils/batchUpload.js';
+import UploadProgress from './UploadProgress.js';
 
 const StaffDashboardNew = ({ user, onLogout }) => {
   // 施設選択画面の状態
@@ -32,6 +34,16 @@ const StaffDashboardNew = ({ user, onLogout }) => {
   });
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadStatus, setUploadStatus] = useState(''); // アップロード状態メッセージ
+  const [uploadStats, setUploadStats] = useState({
+    uploaded: 0,
+    total: 0,
+    currentBatch: 0,
+    totalBatches: 0,
+    failed: 0,
+    startTime: null
+  });
+  const [uploadErrors, setUploadErrors] = useState({ before: [], after: [] });
   const [uploadComplete, setUploadComplete] = useState(false);
   const [error, setError] = useState('');
 
@@ -107,7 +119,7 @@ const StaffDashboardNew = ({ user, onLogout }) => {
     setReceipts(receipts.filter(r => r.id !== id));
   };
 
-  // アップロード処理
+  // アップロード処理（バッチアップロード対応）
   const handleUpload = async () => {
     if (!selectedFacility) {
       setError('施設が選択されていません');
@@ -121,58 +133,220 @@ const StaffDashboardNew = ({ user, onLogout }) => {
 
     setIsUploading(true);
     setUploadProgress(0);
+    setUploadStatus('');
     setError('');
+    setUploadStats({
+      uploaded: 0,
+      total: beforePhotos.length + afterPhotos.length,
+      currentBatch: 0,
+      totalBatches: 0,
+      failed: 0,
+      startTime: Date.now()
+    });
+    setUploadErrors({ before: [], after: [] });
 
     try {
       const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
       const month = today.substring(0, 7); // YYYY-MM
       let sessionId = null;
 
-      // 清掃前写真のアップロード
+      const totalSteps =
+        (beforePhotos.length > 0 ? 1 : 0) +
+        (afterPhotos.length > 0 ? 1 : 0) +
+        (receipts.length > 0 ? 1 : 0) +
+        (monthlyCheck.ventilation || monthlyCheck.airFilter ? 1 : 0);
+
+      let completedSteps = 0;
+
+      // 清掃前写真のバッチアップロード
       if (beforePhotos.length > 0) {
-        setUploadProgress(20);
-        const result = await photosApi.upload(
+        setUploadStatus(`清掃前の写真をアップロード中... (${beforePhotos.length}枚)`);
+
+        const result = await batchUploadPhotos(
           selectedFacility.id,
           beforePhotos.map(p => p.file),
-          'before'
+          'before',
+          {
+            date: today,
+            onProgress: (uploaded, total, currentBatch, totalBatches) => {
+              const baseProgress = (completedSteps / totalSteps) * 100;
+              const stepProgress = (uploaded / total) * (100 / totalSteps);
+              setUploadProgress(Math.round(baseProgress + stepProgress));
+              setUploadStatus(`清掃前の写真: ${uploaded}/${total}枚 (バッチ${currentBatch}/${totalBatches})`);
+              setUploadStats(prev => ({
+                ...prev,
+                uploaded,
+                currentBatch,
+                totalBatches
+              }));
+            }
+          }
         );
+
+        if (!result.success) {
+          setUploadErrors(prev => ({ ...prev, before: result.errors }));
+          setUploadStats(prev => ({ ...prev, failed: prev.failed + result.errors.length }));
+        }
+
         sessionId = result.sessionId;
+        completedSteps++;
       }
 
-      // 清掃後写真のアップロード
+      // 清掃後写真のバッチアップロード
       if (afterPhotos.length > 0) {
-        setUploadProgress(50);
-        const result = await photosApi.upload(
+        setUploadStatus(`清掃後の写真をアップロード中... (${afterPhotos.length}枚)`);
+
+        const result = await batchUploadPhotos(
           selectedFacility.id,
           afterPhotos.map(p => p.file),
           'after',
-          { sessionId }
+          {
+            date: today,
+            sessionId,
+            onProgress: (uploaded, total, currentBatch, totalBatches) => {
+              const baseProgress = (completedSteps / totalSteps) * 100;
+              const stepProgress = (uploaded / total) * (100 / totalSteps);
+              setUploadProgress(Math.round(baseProgress + stepProgress));
+              setUploadStatus(`清掃後の写真: ${uploaded}/${total}枚 (バッチ${currentBatch}/${totalBatches})`);
+              setUploadStats(prev => ({
+                ...prev,
+                uploaded: beforePhotos.length + uploaded,
+                currentBatch,
+                totalBatches
+              }));
+            }
+          }
         );
+
+        if (!result.success) {
+          setUploadErrors(prev => ({ ...prev, after: result.errors }));
+          setUploadStats(prev => ({ ...prev, failed: prev.failed + result.errors.length }));
+        }
+
         sessionId = result.sessionId || sessionId;
+        completedSteps++;
       }
 
       // 領収書のアップロード
       if (receipts.length > 0) {
-        setUploadProgress(70);
+        setUploadStatus('領収書をアップロード中...');
+        const baseProgress = (completedSteps / totalSteps) * 100;
+        setUploadProgress(Math.round(baseProgress));
+
         await receiptsApi.upload(
           selectedFacility.id,
           receipts.map(r => r.file),
           month,
           sessionId
         );
+        completedSteps++;
       }
 
       // 月次点検の保存
       if (monthlyCheck.ventilation || monthlyCheck.airFilter) {
-        setUploadProgress(90);
+        setUploadStatus('月次点検を保存中...');
+        const baseProgress = (completedSteps / totalSteps) * 100;
+        setUploadProgress(Math.round(baseProgress));
+
         await monthlyCheckApi.save(selectedFacility.id, monthlyCheck, sessionId);
+        completedSteps++;
       }
 
       setUploadProgress(100);
+      setUploadStatus('アップロード完了！');
       setUploadComplete(true);
 
     } catch (err) {
+      console.error('アップロードエラー:', err);
       setError('アップロードに失敗しました: ' + err.message);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  // 失敗した写真の再試行
+  const handleRetryUpload = async () => {
+    const hasErrors = uploadErrors.before.length > 0 || uploadErrors.after.length > 0;
+    if (!hasErrors) return;
+
+    setIsUploading(true);
+    setError('');
+
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      let sessionId = null;
+
+      // 清掃前の失敗分を再試行
+      if (uploadErrors.before.length > 0) {
+        setUploadStatus('清掃前の写真を再アップロード中...');
+        const result = await retryFailedBatches(
+          selectedFacility.id,
+          uploadErrors.before,
+          'before',
+          {
+            date: today,
+            onProgress: (uploaded, total, currentBatch, totalBatches) => {
+              setUploadStats(prev => ({
+                ...prev,
+                uploaded: prev.uploaded + uploaded,
+                currentBatch,
+                totalBatches
+              }));
+            }
+          }
+        );
+
+        if (result.success) {
+          setUploadErrors(prev => ({ ...prev, before: [] }));
+          setUploadStats(prev => ({ ...prev, failed: prev.failed - result.successCount }));
+        } else {
+          setUploadErrors(prev => ({ ...prev, before: result.stillFailedErrors }));
+        }
+
+        sessionId = result.retryResults[0]?.result?.sessionId;
+      }
+
+      // 清掃後の失敗分を再試行
+      if (uploadErrors.after.length > 0) {
+        setUploadStatus('清掃後の写真を再アップロード中...');
+        const result = await retryFailedBatches(
+          selectedFacility.id,
+          uploadErrors.after,
+          'after',
+          {
+            date: today,
+            sessionId,
+            onProgress: (uploaded, total, currentBatch, totalBatches) => {
+              setUploadStats(prev => ({
+                ...prev,
+                uploaded: prev.uploaded + uploaded,
+                currentBatch,
+                totalBatches
+              }));
+            }
+          }
+        );
+
+        if (result.success) {
+          setUploadErrors(prev => ({ ...prev, after: [] }));
+          setUploadStats(prev => ({ ...prev, failed: prev.failed - result.successCount }));
+        } else {
+          setUploadErrors(prev => ({ ...prev, after: result.stillFailedErrors }));
+        }
+      }
+
+      // 全て成功したら完了
+      const stillHasErrors = uploadErrors.before.length > 0 || uploadErrors.after.length > 0;
+      if (!stillHasErrors) {
+        setUploadProgress(100);
+        setUploadStatus('再試行完了！');
+        setUploadComplete(true);
+      } else {
+        setError('一部の写真の再アップロードに失敗しました');
+      }
+    } catch (err) {
+      console.error('再試行エラー:', err);
+      setError('再試行に失敗しました: ' + err.message);
     } finally {
       setIsUploading(false);
     }
@@ -185,6 +359,7 @@ const StaffDashboardNew = ({ user, onLogout }) => {
     setAfterPhotos([]);
     setReceipts([]);
     setMonthlyCheck({ ventilation: false, airFilter: false });
+    setUploadErrors({ before: [], after: [] });
     setSelectedFacility(null);
   };
 
@@ -405,14 +580,34 @@ const StaffDashboardNew = ({ user, onLogout }) => {
               {/* アップロード進捗 */}
               {isUploading && (
                 <div className="mb-6">
-                  <p className="text-center text-gray-600 mb-2">アップロード中...</p>
-                  <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
-                    <div
-                      className="bg-blue-600 h-full transition-all duration-300 ease-out"
-                      style={{ width: `${uploadProgress}%` }}
-                    />
-                  </div>
-                  <p className="text-center text-sm text-gray-500 mt-2">{uploadProgress}%</p>
+                  <UploadProgress
+                    progress={uploadProgress}
+                    status={uploadStatus}
+                    uploaded={uploadStats.uploaded}
+                    total={uploadStats.total}
+                    currentBatch={uploadStats.currentBatch}
+                    totalBatches={uploadStats.totalBatches}
+                    failed={uploadStats.failed}
+                    estimatedTime={{ elapsed: (Date.now() - uploadStats.startTime) / 1000 }}
+                    isUploading={isUploading}
+                  />
+                </div>
+              )}
+
+              {/* エラー時の再試行 */}
+              {!isUploading && uploadStats.failed > 0 && !uploadComplete && (
+                <div className="mb-6">
+                  <UploadProgress
+                    progress={uploadProgress}
+                    status={uploadStatus}
+                    uploaded={uploadStats.uploaded}
+                    total={uploadStats.total}
+                    currentBatch={uploadStats.currentBatch}
+                    totalBatches={uploadStats.totalBatches}
+                    failed={uploadStats.failed}
+                    onRetry={handleRetryUpload}
+                    isUploading={false}
+                  />
                 </div>
               )}
 

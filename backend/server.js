@@ -65,8 +65,9 @@ app.use(cors({
   credentials: true,
 }));
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// リクエストサイズ制限を拡大（バッチアップロード対応）
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // 静的ファイル配信（開発環境のみ）
 if (process.env.NODE_ENV !== 'production') {
@@ -86,6 +87,15 @@ const limiter = rateLimit({
   max: 100 // 最大100リクエスト
 });
 app.use('/api/', limiter);
+
+// アップロードエンドポイント用のレート制限（緩和）
+const uploadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15分
+  max: 200, // 200リクエスト（バッチアップロード対応: 20バッチ × 10リトライ想定）
+  message: 'アップロードリクエストが多すぎます。しばらくお待ちください。'
+});
+app.use('/api/photos/upload', uploadLimiter);
+app.use('/api/receipts/upload', uploadLimiter);
 
 // ===== ディレクトリ作成ヘルパー =====
 async function ensureDir(dirPath) {
@@ -1556,12 +1566,17 @@ async function startServer() {
   await ensureDir(path.join(STORAGE_ROOT, 'photos'));
   await ensureDir(path.join(STORAGE_ROOT, 'receipts'));
   
-  app.listen(PORT, '0.0.0.0', () => {
+  const server = app.listen(PORT, '0.0.0.0', () => {
     logger.info(`サーバーが起動しました: http://localhost:${PORT}`);
     logger.info(`外部アクセス用: http://192.168.137.97:${PORT}`);
     logger.info(`環境: ${process.env.NODE_ENV || 'development'}`);
     logger.info(`ストレージ: ${STORAGE_ROOT}`);
   });
+
+  // タイムアウト設定（バッチアップロード対応）
+  server.timeout = 120000; // 120秒（2分）
+  server.keepAliveTimeout = 65000; // 65秒
+  server.headersTimeout = 66000; // 66秒
 }
 
 startServer();

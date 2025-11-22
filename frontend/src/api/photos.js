@@ -4,7 +4,7 @@
 import { apiClient, getFullUrl } from './config.js';
 
 export const photosApi = {
-  // 写真アップロード（仕様準拠版）
+  // 写真アップロード（バッチ対応版）
   async upload(facilityId, photos, type, options = {}) {
     const { date, sessionId } = options;
     const formData = new FormData();
@@ -26,7 +26,10 @@ export const photosApi = {
       formData.append('photos', photo);
     });
 
-    const response = await apiClient.post('/photos/upload', formData);
+    // アップロード処理（タイムアウト延長）
+    const response = await apiClient.post('/photos/upload', formData, {
+      timeout: 60000  // 60秒（10枚のアップロードに十分な時間）
+    });
 
     // URLを完全なURLに変換
     if (response.files) {
