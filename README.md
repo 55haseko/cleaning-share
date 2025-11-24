@@ -64,7 +64,7 @@ cp .env.example .env
 
 最低限必要な設定:
 ```env
-PORT=4001
+PORT=4000
 CORS_ORIGIN=http://localhost:3000
 DB_HOST=localhost
 DB_USER=cleaning_user
@@ -76,7 +76,7 @@ JWT_SECRET=your-secure-secret-key-change-this-in-production
 #### フロントエンド (`frontend/.env`)
 
 ```env
-REACT_APP_API_URL=http://localhost:4001/api
+REACT_APP_API_URL=http://localhost:4000/api
 ```
 
 ### 3. データベースのセットアップ
@@ -110,7 +110,7 @@ SOURCE backend/database_schema.sql;
 
 | 変数名 | 説明 | デフォルト値 | 例 |
 |--------|------|------------|-----|
-| PORT | サーバーポート | 4001 | 4001 |
+| PORT | サーバーポート | 4000 | 4000 |
 | CORS_ORIGIN | フロントエンドURL | - | http://localhost:3000 |
 | DB_HOST | DBホスト | localhost | localhost |
 | DB_USER | DBユーザー | - | cleaning_user |
@@ -119,7 +119,7 @@ SOURCE backend/database_schema.sql;
 | JWT_SECRET | JWT署名キー | - | (ランダム文字列) |
 | STORAGE_DRIVER | ストレージタイプ | local | local |
 | STORAGE_ROOT | ファイル保存ルート | ./uploads_dev | ./uploads_dev |
-| PUBLIC_BASE_URL | 公開URL基準 | (相対URL) | http://localhost:4001 |
+| PUBLIC_BASE_URL | 公開URL基準 | (相対URL) | http://localhost:4000 |
 | RETENTION_DAYS | 写真保持日数 | 60 | 60 |
 | MAX_FILE_MB | ファイルサイズ上限(MB) | 20 | 20 |
 
@@ -127,7 +127,7 @@ SOURCE backend/database_schema.sql;
 
 | 変数名 | 説明 | 例 |
 |--------|------|----|
-| REACT_APP_API_URL | バックエンドAPI URL | http://localhost:4001/api |
+| REACT_APP_API_URL | バックエンドAPI URL | http://localhost:4000/api |
 
 ## API使用例
 

@@ -23,7 +23,7 @@ cat backend/.env | grep CORS_ORIGIN
 2. フロントエンドの `.env` を確認:
 ```bash
 cat frontend/.env | grep REACT_APP_API_URL
-# 出力: REACT_APP_API_URL=http://localhost:4001/api
+# 出力: REACT_APP_API_URL=http://localhost:4000/api
 ```
 
 3. 設定を修正したら、両方のサーバーを再起動:
@@ -43,18 +43,18 @@ cat frontend/.env | grep REACT_APP_API_URL
 
 **症状**:
 ```
-Error: listen EADDRINUSE: address already in use :::4001
+Error: listen EADDRINUSE: address already in use :::4000
 ```
 
 **解決方法**:
 
 ```bash
 # ポート使用中のプロセスを確認
-lsof -ti:4001
+lsof -ti:4000
 lsof -ti:3000
 
 # プロセスを停止
-kill $(lsof -ti:4001)
+kill $(lsof -ti:4000)
 kill $(lsof -ti:3000)
 
 # または停止スクリプトを使用
@@ -122,7 +122,7 @@ cat backend/.env | grep MAX_FILE_MB
 
 **症状**:
 ```
-Access to fetch at 'http://localhost:4001/api/...' from origin 'http://localhost:3000'
+Access to fetch at 'http://localhost:4000/api/...' from origin 'http://localhost:3000'
 has been blocked by CORS policy
 ```
 
@@ -229,10 +229,10 @@ LIMIT 10;
 
 ```bash
 # バックエンドAPIの健全性チェック
-curl http://localhost:4001/api/health
+curl http://localhost:4000/api/health
 
 # ログインAPIのテスト
-curl -X POST http://localhost:4001/api/auth/login \
+curl -X POST http://localhost:4000/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email":"admin@cleaning.com","password":"admin123"}'
 ```

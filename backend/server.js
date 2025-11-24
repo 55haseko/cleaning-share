@@ -17,7 +17,7 @@ require('dotenv').config();
 
 // ===== 設定 =====
 const app = express();
-const PORT = process.env.PORT || 4001;
+const PORT = process.env.PORT || 4000;
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this';
 
 // 新しいストレージ設定
@@ -96,6 +96,31 @@ const uploadLimiter = rateLimit({
 });
 app.use('/api/photos/upload', uploadLimiter);
 app.use('/api/receipts/upload', uploadLimiter);
+
+// ===== ファイルパス正規化関数 =====
+/**
+ * DBに保存されたファイルパスを正規化して相対URLパスに変換
+ * 対応フォーマット:
+ * - 絶対パス: /var/www/cleaning-share/backend/uploads/photos/... → photos/...
+ * - 相対パス: uploads/photos/... → photos/...
+ * - 旧形式: uploads_dev/photos/... → photos/...
+ */
+function normalizeFilePath(dbPath) {
+  if (!dbPath) return '';
+
+  let normalized = dbPath;
+
+  // 絶対パスを相対パスに変換
+  normalized = normalized.replace(/^.*\/uploads\//, '');
+
+  // 旧形式（uploads_dev）を処理
+  normalized = normalized.replace(/^uploads_dev\//, '');
+
+  // Windowsパスセパレータを正規化
+  normalized = normalized.replace(/\\/g, '/');
+
+  return normalized;
+}
 
 // ===== ディレクトリ作成ヘルパー =====
 async function ensureDir(dirPath) {
@@ -285,20 +310,20 @@ app.post('/api/auth/login', async (req, res) => {
       { expiresIn: '24h' }
     );
     
-    // ユーザーに関連する施設を取得
+    // ユーザーに関連する施設を取得（削除済みを除外）
     let facilities = [];
     if (user.role === 'staff') {
-      // スタッフは全施設にアクセス可能
-      const [allFacilities] = await connection.execute('SELECT * FROM facilities');
+      // スタッフは全施設にアクセス可能（削除済みを除く）
+      const [allFacilities] = await connection.execute('SELECT * FROM facilities WHERE is_deleted = FALSE');
       facilities = allFacilities;
     } else if (user.role === 'client') {
       const [clientFacilities] = await connection.execute(
-        'SELECT * FROM facilities WHERE client_user_id = ?',
+        'SELECT * FROM facilities WHERE client_user_id = ? AND is_deleted = FALSE',
         [user.id]
       );
       facilities = clientFacilities;
     } else if (user.role === 'admin') {
-      const [allFacilities] = await connection.execute('SELECT * FROM facilities');
+      const [allFacilities] = await connection.execute('SELECT * FROM facilities WHERE is_deleted = FALSE');
       facilities = allFacilities;
     }
     
@@ -345,20 +370,20 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
 
     const user = users[0];
 
-    // ユーザーに関連する施設を取得
+    // ユーザーに関連する施設を取得（削除済みを除外）
     let facilities = [];
     if (user.role === 'staff') {
-      // スタッフは全施設にアクセス可能
-      const [allFacilities] = await connection.execute('SELECT * FROM facilities');
+      // スタッフは全施設にアクセス可能（削除済みを除く）
+      const [allFacilities] = await connection.execute('SELECT * FROM facilities WHERE is_deleted = FALSE');
       facilities = allFacilities;
     } else if (user.role === 'client') {
       const [clientFacilities] = await connection.execute(
-        'SELECT * FROM facilities WHERE client_user_id = ?',
+        'SELECT * FROM facilities WHERE client_user_id = ? AND is_deleted = FALSE',
         [user.id]
       );
       facilities = clientFacilities;
     } else if (user.role === 'admin') {
-      const [allFacilities] = await connection.execute('SELECT * FROM facilities');
+      const [allFacilities] = await connection.execute('SELECT * FROM facilities WHERE is_deleted = FALSE');
       facilities = allFacilities;
     }
 
@@ -432,14 +457,14 @@ app.get('/api/users', authenticateToken, requireAdmin, async (req, res) => {
     // 各ユーザーの施設情報も取得
     for (const user of users) {
       if (user.role === 'staff') {
-        // スタッフは全施設にアクセス可能
+        // スタッフは全施設にアクセス可能（削除済みを除く）
         const [facilities] = await pool.execute(
-          'SELECT id, name FROM facilities'
+          'SELECT id, name FROM facilities WHERE is_deleted = FALSE'
         );
         user.facilities = facilities;
       } else if (user.role === 'client') {
         const [facilities] = await pool.execute(
-          'SELECT id, name FROM facilities WHERE client_user_id = ?',
+          'SELECT id, name FROM facilities WHERE client_user_id = ? AND is_deleted = FALSE',
           [user.id]
         );
         user.facilities = facilities;
@@ -677,13 +702,13 @@ app.get('/api/facilities', authenticateToken, async (req, res) => {
     let params = [];
 
     if (req.user.role === 'admin') {
-      query = 'SELECT * FROM facilities';
+      query = 'SELECT * FROM facilities WHERE is_deleted = FALSE';
     } else if (req.user.role === 'client') {
-      query = 'SELECT * FROM facilities WHERE client_user_id = ?';
+      query = 'SELECT * FROM facilities WHERE client_user_id = ? AND is_deleted = FALSE';
       params = [req.user.id];
     } else if (req.user.role === 'staff') {
-      // スタッフは全施設にアクセス可能
-      query = 'SELECT * FROM facilities';
+      // スタッフは全施設にアクセス可能（削除済みを除く）
+      query = 'SELECT * FROM facilities WHERE is_deleted = FALSE';
     }
 
     const [facilities] = await pool.execute(query, params);
@@ -722,9 +747,9 @@ app.put('/api/facilities/:facilityId', authenticateToken, requireAdmin, async (r
       return res.status(400).json({ error: '施設名は必須です' });
     }
 
-    // 施設が存在するかチェック
+    // 施設が存在するかチェック（削除済みを除外）
     const [existing] = await pool.execute(
-      'SELECT id FROM facilities WHERE id = ?',
+      'SELECT id FROM facilities WHERE id = ? AND is_deleted = FALSE',
       [facilityId]
     );
 
@@ -752,14 +777,14 @@ app.put('/api/facilities/:facilityId', authenticateToken, requireAdmin, async (r
   }
 });
 
-// 施設削除（管理者のみ）
+// 施設削除（管理者のみ、論理削除）
 app.delete('/api/facilities/:facilityId', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { facilityId } = req.params;
 
     // 施設が存在するかチェック
     const [existing] = await pool.execute(
-      'SELECT id, name FROM facilities WHERE id = ?',
+      'SELECT id, name FROM facilities WHERE id = ? AND is_deleted = FALSE',
       [facilityId]
     );
 
@@ -767,34 +792,20 @@ app.delete('/api/facilities/:facilityId', authenticateToken, requireAdmin, async
       return res.status(404).json({ error: '施設が見つかりません' });
     }
 
-    // 関連データをチェック（清掃セッションが存在する場合は警告）
-    const [sessions] = await pool.execute(
-      'SELECT COUNT(*) as count FROM cleaning_sessions WHERE facility_id = ?',
+    // 施設を論理削除（is_deleted = TRUEに設定）
+    await pool.execute(
+      'UPDATE facilities SET is_deleted = TRUE WHERE id = ?',
       [facilityId]
     );
 
-    if (sessions[0].count > 0) {
-      return res.status(400).json({
-        error: `この施設には${sessions[0].count}件の清掃記録があります。削除する前にデータを確認してください。`,
-        hasData: true,
-        sessionCount: sessions[0].count
-      });
-    }
-
-    // スタッフ施設の関連を削除
+    // スタッフ施設の関連も削除
     await pool.execute(
       'DELETE FROM staff_facilities WHERE facility_id = ?',
       [facilityId]
     );
 
-    // 施設を削除
-    await pool.execute(
-      'DELETE FROM facilities WHERE id = ?',
-      [facilityId]
-    );
-
     res.json({ message: '施設を削除しました' });
-    logger.info(`施設削除: ID=${facilityId}, ${existing[0].name}`);
+    logger.info(`施設論理削除: ID=${facilityId}, ${existing[0].name}`);
   } catch (error) {
     logger.error('施設削除エラー:', error);
     res.status(500).json({ error: 'サーバーエラーが発生しました' });
@@ -880,7 +891,9 @@ app.post('/api/photos/upload', authenticateToken, upload.array('photos', 200), a
         type: type,
         size: file.size,
         url: `/uploads/${relativePath.replace(/\\/g, '/')}`,
-        thumbnailUrl: relativeThumbPath ? `/uploads/${relativeThumbPath.replace(/\\/g, '/')}` : null
+        thumbnailUrl: relativeThumbPath ? `/uploads/${relativeThumbPath.replace(/\\/g, '/')}` : null,
+        file_path: relativePath.replace(/\\/g, '/'),
+        thumbnail_path: relativeThumbPath ? relativeThumbPath.replace(/\\/g, '/') : null
       });
     }
     
@@ -909,7 +922,7 @@ app.get('/api/receipts/:facilityId', authenticateToken, async (req, res) => {
     if (req.user.role !== 'admin') {
       if (req.user.role === 'client') {
         const [facilities] = await pool.execute(
-          'SELECT id FROM facilities WHERE id = ? AND client_user_id = ?',
+          'SELECT id FROM facilities WHERE id = ? AND client_user_id = ? AND is_deleted = FALSE',
           [facilityId, req.user.id]
         );
         if (facilities.length === 0) {
@@ -946,11 +959,13 @@ app.get('/api/receipts/:facilityId', authenticateToken, async (req, res) => {
     const [receipts] = await pool.execute(query, params);
 
     // パスをURLに変換
+    // DBから取得したパスがすでに "uploads/receipts/..." 形式なので
+    // そのまま /uploads 以下に配置する URLとして返す
     const receiptsWithUrls = receipts.map(receipt => {
-      const urlPath = receipt.file_path.replace(/^uploads_dev\//, '').replace(/\\/g, '/');
+      const dbPath = receipt.file_path || '';
       return {
         ...receipt,
-        url: `/uploads/${urlPath}`
+        url: `/${dbPath}`
       };
     });
 
@@ -993,7 +1008,8 @@ app.post('/api/receipts/upload', authenticateToken, receiptUpload.array('receipt
         filename: file.filename,
         size: file.size,
         originalName: file.originalname,
-        url: `/uploads/${relativePath.replace(/\\/g, '/')}`
+        url: `/uploads/${relativePath.replace(/\\/g, '/')}`,
+        file_path: relativePath.replace(/\\/g, '/')
       });
     }
 
@@ -1225,7 +1241,8 @@ app.post('/api/photos/upload-test', upload.array('photos', 200), async (req, res
         type: type,
         size: file.size,
         path: file.path,
-        url: `/uploads/${relativePath.replace(/\\/g, '/')}`
+        url: `/uploads/${relativePath.replace(/\\/g, '/')}`,
+        file_path: relativePath.replace(/\\/g, '/')
       });
 
       logger.info(`ファイル保存: ${file.path}`);
@@ -1276,17 +1293,17 @@ app.get('/api/albums/:facilityId', authenticateToken, async (req, res) => {
         [session.id]
       );
       
-      // パスをURLに変換
+      // パスをURLに変換（正規化関数を使用）
       session.photos = photos.map(photo => {
-        // file_pathから STORAGE_ROOT 部分を削除してURLパスを生成
-        const urlPath = photo.file_path.replace(/^uploads_dev\//, '').replace(/\\/g, '/');
-        const thumbnailPath = photo.thumbnail_path ?
-          photo.thumbnail_path.replace(/^uploads_dev\//, '').replace(/\\/g, '/') : null;
+        // DBから取得したパスがすでに "uploads/photos/..." 形式なので
+        // そのまま /uploads 以下に配置する URLとして返す
+        const dbPath = photo.file_path || '';
+        const dbThumbPath = photo.thumbnail_path || '';
 
         return {
           ...photo,
-          url: `/uploads/${urlPath}`,
-          thumbnailUrl: thumbnailPath ? `/uploads/${thumbnailPath}` : null
+          url: `/${dbPath}`,
+          thumbnailUrl: dbThumbPath ? `/${dbThumbPath}` : null
         };
       });
     }
@@ -1309,7 +1326,7 @@ app.get('/api/albums/:facilityId/:sessionId/download', authenticateToken, async 
     if (req.user.role !== 'admin') {
       if (req.user.role === 'client') {
         const [facilities] = await pool.execute(
-          'SELECT id FROM facilities WHERE id = ? AND client_user_id = ?',
+          'SELECT id FROM facilities WHERE id = ? AND client_user_id = ? AND is_deleted = FALSE',
           [facilityId, req.user.id]
         );
         logger.info(`クライアント権限チェック: facilityId=${facilityId}, userId=${req.user.id}, 結果=${facilities.length}件`);
@@ -1323,7 +1340,7 @@ app.get('/api/albums/:facilityId/:sessionId/download', authenticateToken, async 
 
     // セッション情報と写真を取得
     const [sessions] = await pool.execute(
-      'SELECT cs.*, f.name as facility_name FROM cleaning_sessions cs JOIN facilities f ON cs.facility_id = f.id WHERE cs.id = ? AND cs.facility_id = ?',
+      'SELECT cs.*, f.name as facility_name FROM cleaning_sessions cs JOIN facilities f ON cs.facility_id = f.id WHERE cs.id = ? AND cs.facility_id = ? AND f.is_deleted = FALSE',
       [sessionId, facilityId]
     );
 

@@ -134,7 +134,7 @@ backend/
 
 #### **`.env`** - 環境変数（例）
 ```env
-PORT=4001
+PORT=4000
 DB_HOST=localhost
 DB_USER=cleaning_user
 DB_PASSWORD=strongpassword
@@ -260,7 +260,7 @@ frontend/
 
 #### **`.env`** - 環境変数（例）
 ```env
-REACT_APP_API_URL=http://localhost:4001/api
+REACT_APP_API_URL=http://localhost:4000/api
 ```
 
 ---
@@ -337,7 +337,7 @@ npm run dev
 ```bash
 cd frontend
 npm install
-echo "REACT_APP_API_URL=http://localhost:4001/api" > .env
+echo "REACT_APP_API_URL=http://localhost:4000/api" > .env
 npm start
 ```
 

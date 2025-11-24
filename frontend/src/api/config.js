@@ -1,8 +1,8 @@
 // ===== frontend/src/api/config.js =====
 // API設定ファイル
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:4001/api';
-const BACKEND_BASE_URL = API_BASE_URL.replace('/api', ''); // http://localhost:4001
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
+const BACKEND_BASE_URL = API_BASE_URL.replace('/api', ''); // http://localhost:4000
 
 // APIクライアント設定
 class ApiClient {
@@ -92,7 +92,7 @@ const apiClient = new ApiClient();
 /**
  * バックエンドの相対URLを完全なURLに変換
  * @param {string} path - 相対パス（例: "/uploads/photos/..."）
- * @returns {string} - 完全なURL（例: "http://localhost:4001/uploads/photos/..."）
+ * @returns {string} - 完全なURL（例: "http://localhost:4000/uploads/photos/..."）
  */
 const getFullUrl = (path) => {
   if (!path) return path;

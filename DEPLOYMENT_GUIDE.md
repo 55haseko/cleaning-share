@@ -182,7 +182,7 @@ DB_PASSWORD=your-strong-password-here
 DB_NAME=cleaning_system
 
 # サーバー設定
-PORT=4001
+PORT=4000
 NODE_ENV=production
 
 # JWT設定（ランダムな文字列を生成）
@@ -230,7 +230,7 @@ cd /var/www/cleaning-share/backend
 npm start
 ```
 
-`http://your-vps-ip:4001` でアクセスできることを確認。
+`http://your-vps-ip:4000` でアクセスできることを確認。
 確認後、`Ctrl+C` で停止。
 
 ---
@@ -259,7 +259,7 @@ REACT_APP_API_URL=http://your-domain.com/api
 **ドメインがない場合はIPアドレスを使用：**
 
 ```env
-REACT_APP_API_URL=http://your-vps-ip:4001/api
+REACT_APP_API_URL=http://your-vps-ip:4000/api
 ```
 
 ### 6.3 フロントエンドのビルド
@@ -310,7 +310,7 @@ server {
 
     # バックエンドAPI
     location /api/ {
-        proxy_pass http://localhost:4001/api/;
+        proxy_pass http://localhost:4000/api/;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';

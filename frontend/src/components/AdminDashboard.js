@@ -242,7 +242,7 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
   };
 
   const handleDeleteFacility = async (facility) => {
-    if (window.confirm(`施設「${facility.name}」を削除しますか？\n関連する清掃記録がある場合は削除できません。`)) {
+    if (window.confirm(`施設「${facility.name}」を削除しますか？\n（写真データは保持され、削除後は管理画面に表示されません）`)) {
       try {
         await facilitiesApi.delete(facility.id);
         alert('施設を削除しました');
@@ -1195,7 +1195,7 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
                                 const imageUrl = receipt.url;
                                 const fullUrl = imageUrl.startsWith('http')
                                   ? imageUrl
-                                  : `${process.env.REACT_APP_API_URL?.replace('/api', '') || 'http://localhost:4001'}${imageUrl}`;
+                                  : `${process.env.REACT_APP_API_URL?.replace('/api', '') || 'http://localhost:4000'}${imageUrl}`;
 
                                 return (
                                   <div key={receipt.id} style={{position: 'relative', paddingBottom: '100%', backgroundColor: '#f0f0f0', borderRadius: '8px', overflow: 'hidden'}}>
@@ -1368,7 +1368,7 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
                       const imageUrl = photo.thumbnailUrl || photo.url;
                       const fullUrl = imageUrl.startsWith('http')
                         ? imageUrl
-                        : `${process.env.REACT_APP_API_URL?.replace('/api', '') || 'http://localhost:4001'}${imageUrl}`;
+                        : `${process.env.REACT_APP_API_URL?.replace('/api', '') || 'http://localhost:4000'}${imageUrl}`;
 
                       return (
                       <div key={photo.id} style={{position: 'relative', paddingBottom: '100%', backgroundColor: '#f0f0f0', borderRadius: '8px', overflow: 'hidden'}}>

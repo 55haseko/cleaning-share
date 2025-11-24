@@ -629,7 +629,7 @@ DB_PASSWORD=strongpassword
 DB_NAME=cleaning_system
 
 # サーバー
-PORT=4001
+PORT=4000
 NODE_ENV=production
 
 # セキュリティ

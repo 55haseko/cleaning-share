@@ -37,14 +37,14 @@ fi
 echo ""
 echo "🔍 ポート使用状況を確認しています..."
 
-BACKEND_PORT_PID=$(lsof -ti:4001 2>/dev/null)
+BACKEND_PORT_PID=$(lsof -ti:4000 2>/dev/null)
 if [ ! -z "$BACKEND_PORT_PID" ]; then
-    echo "⚠️  ポート4001がまだ使用されています (PID: $BACKEND_PORT_PID)"
+    echo "⚠️  ポート4000がまだ使用されています (PID: $BACKEND_PORT_PID)"
     echo "   停止しますか? (y/N): "
     read -r response
     if [[ "$response" =~ ^([yY][eE][sS]|[yY])$ ]]; then
         kill $BACKEND_PORT_PID
-        echo "✅ ポート4001のプロセスを停止しました"
+        echo "✅ ポート4000のプロセスを停止しました"
     fi
 fi
 
