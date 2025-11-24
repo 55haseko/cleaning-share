@@ -8,7 +8,7 @@ See @README and @docs/ARCHITECTURE.md (if exists).
 ## Status
 - Stack: React (CRA) / Node.js + Express / MySQL
 - Storage: ローカル `./uploads`（multer）で運用継続
-- Port: BE=4000（.env）, FE=3000（想定）
+- Port: BE=8000（.env）, FE=3000（想定）
 - Retention: **写真60日自動削除（cron=毎日02:00）** ✅
 - 領収書: **未実装** → 施設×月（YYYY-MM）で実装予定
 
@@ -76,7 +76,7 @@ See @README and @docs/ARCHITECTURE.md (if exists).
   - [ ] モバイル実測（4G）アップ時間を記録
 
 ## Environment (document only; do NOT commit)
-- `PORT=4000`
+- `PORT=8000`
 - `CORS_ORIGIN=http://localhost:3000`
 - `UPLOAD_DIR=./uploads`
 - `RETENTION_DAYS_PHOTO=60`

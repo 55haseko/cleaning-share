@@ -17,7 +17,7 @@ require('dotenv').config();
 
 // ===== 設定 =====
 const app = express();
-const PORT = process.env.PORT || 4000;
+const PORT = process.env.PORT || 8000;
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this';
 
 // 新しいストレージ設定
@@ -170,13 +170,17 @@ const upload = multer({
   },
   fileFilter: (req, file, cb) => {
     // MIMEタイプで判定（拡張子ではなく実際のファイル形式を見る）
-    // browser-image-compressionがHEIC→JPEGに変換するので、JPEGのMIMEタイプを持つ
-    const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+    // HEIC/HEIF対応: browser-image-compressionがHEIC→JPEGに変換するはず
+    // ただし、念のためバックエンド側でもHEICを受け入れ、JPEG変換処理を行う
+    logger.info(`[写真フィルタ] ファイル処理開始: ${file.originalname}, MIME: ${file.mimetype}`);
+    const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'image/heic', 'image/heif'];
 
     if (allowedMimeTypes.includes(file.mimetype)) {
+      logger.info(`[写真フィルタ] ファイル許可: ${file.originalname}`);
       return cb(null, true);
     } else {
-      cb(new Error(`画像ファイル（JPEG, PNG, GIF, WebP）のみアップロード可能です。受信: ${file.mimetype}`));
+      logger.error(`[写真フィルタ] ファイル拒否: ${file.originalname}, MIME: ${file.mimetype}`);
+      cb(new Error(`画像ファイル（JPEG, PNG, GIF, WebP, HEIC）のみアップロード可能です。受信: ${file.mimetype}`));
     }
   }
 });
@@ -850,11 +854,57 @@ app.post('/api/sessions', authenticateToken, async (req, res) => {
 });
 
 // ===== 写真アップロード（改善版） =====
-app.post('/api/photos/upload', authenticateToken, upload.array('photos', 200), async (req, res) => {
+// multerエラーハンドリング用ミドルウェア
+const handleUploadErrors = (err, req, res, next) => {
+  if (err instanceof multer.MulterError) {
+    logger.error('Multerエラー:', err.message);
+    if (err.code === 'FILE_TOO_LARGE') {
+      return res.status(400).json({ error: 'ファイルサイズが大きすぎます（最大20MB）' });
+    }
+    if (err.code === 'LIMIT_FILE_COUNT') {
+      return res.status(400).json({ error: '一度にアップロードできるファイル数を超えています' });
+    }
+    return res.status(400).json({ error: `ファイルアップロードエラー: ${err.message}` });
+  } else if (err instanceof Error) {
+    logger.error('ファイルバリデーションエラー:', err.message);
+    return res.status(400).json({ error: err.message });
+  }
+  next();
+};
+
+app.post('/api/photos/upload', authenticateToken, (req, res, next) => {
+  upload.array('photos', 200)(req, res, (err) => {
+    if (err) {
+      logger.error('写真アップロード - multerエラー:', err);
+      if (err instanceof multer.MulterError) {
+        if (err.code === 'FILE_TOO_LARGE') {
+          return res.status(400).json({ error: 'ファイルサイズが大きすぎます（最大20MB）' });
+        }
+        if (err.code === 'LIMIT_FILE_COUNT') {
+          return res.status(400).json({ error: '一度にアップロードできるファイル数を超えています' });
+        }
+        return res.status(400).json({ error: `ファイルアップロードエラー: ${err.message}` });
+      } else if (err instanceof Error) {
+        // fileFilterで発生したエラー（ファイル形式の検証など）
+        logger.error('ファイルバリデーションエラー:', err.message);
+        return res.status(400).json({ error: err.message });
+      }
+      return res.status(500).json({ error: 'アップロード処理中にエラーが発生しました' });
+    }
+    next();
+  });
+}, async (req, res) => {
   try {
     const { facilityId, sessionId, type } = req.body;
     const uploadedFiles = [];
-    
+
+    // ファイルが無い場合はエラー
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ error: 'アップロードするファイルがありません' });
+    }
+
+    logger.info(`写真アップロード開始: facilityId=${facilityId}, 枚数=${req.files.length}, type=${type}`);
+
     // セッションIDを取得または作成
     let actualSessionId = sessionId;
     if (!actualSessionId) {
@@ -864,31 +914,78 @@ app.post('/api/photos/upload', authenticateToken, upload.array('photos', 200), a
       );
       actualSessionId = result.insertId;
     }
-    
+
     // 各ファイルを処理
     for (const file of req.files) {
+      logger.info(`ファイル処理中: ${file.originalname} (${file.size}bytes, mimetype: ${file.mimetype})`);
+
+      let finalFilePath = file.path;
+      let finalFileName = file.filename;
+      let fileSize = file.size;
+
+      // HEIC/HEIFをJPEGに変換
+      if (file.mimetype === 'image/heic' || file.mimetype === 'image/heif') {
+        try {
+          logger.info(`HEIC→JPEG変換開始: ${file.originalname}`);
+          // HEIC→JPEG変換
+          const jpegFileName = file.filename.replace(/\.(heic|heif)$/i, '.jpeg');
+          const jpegPath = path.join(path.dirname(file.path), jpegFileName);
+
+          await sharp(file.path)
+            .toFormat('jpeg')
+            .toFile(jpegPath);
+
+          // 元のHEICファイルを削除
+          await fs.unlink(file.path);
+
+          // 変換後のファイル情報を使用
+          finalFilePath = jpegPath;
+          finalFileName = jpegFileName;
+
+          // 変換後のファイルサイズを取得
+          const stats = await fs.stat(jpegPath);
+          fileSize = stats.size;
+
+          logger.info(`HEIC→JPEG変換完了: ${jpegFileName} (${fileSize}bytes)`);
+        } catch (error) {
+          logger.error(`HEIC→JPEG変換失敗: ${file.originalname}`, error);
+          // 変換失敗時は元のファイルを使用
+          finalFilePath = file.path;
+          finalFileName = file.filename;
+        }
+      }
+
       // サムネイル生成（画像の場合）
       let thumbnailPath = null;
-      if (/\.(jpg|jpeg|png|gif|webp)$/i.test(file.filename)) {
-        const thumbDir = path.join(path.dirname(file.path), 'thumbnails');
-        await ensureDir(thumbDir);
-        
-        thumbnailPath = path.join(thumbDir, `thumb_${file.filename}`);
-        await sharp(file.path)
-          .resize(300, 200, { fit: 'cover' })
-          .toFile(thumbnailPath);
+      if (/\.(jpg|jpeg|png|gif|webp)$/i.test(finalFileName)) {
+        try {
+          const thumbDir = path.join(path.dirname(finalFilePath), 'thumbnails');
+          await ensureDir(thumbDir);
+
+          thumbnailPath = path.join(thumbDir, `thumb_${finalFileName}`);
+          await sharp(finalFilePath)
+            .resize(300, 200, { fit: 'cover' })
+            .jpeg({ quality: 80 })
+            .toFile(thumbnailPath);
+
+          logger.info(`サムネイル生成完了: ${finalFileName}`);
+        } catch (error) {
+          logger.error(`サムネイル生成失敗: ${finalFileName}`, error);
+          // サムネイル生成失敗時は続行
+          thumbnailPath = null;
+        }
       }
-      
-      // データベースに記録
+
+      // 相対パスを先に生成
+      const relativePath = path.relative(STORAGE_ROOT, finalFilePath);
+      const relativeThumbPath = thumbnailPath ? path.relative(STORAGE_ROOT, thumbnailPath) : null;
+
+      // データベースに相対パスを記録（URLで使用しやすいように）
       const [result] = await pool.execute(
         'INSERT INTO photos (cleaning_session_id, file_path, thumbnail_path, type, file_size, original_name) VALUES (?, ?, ?, ?, ?, ?)',
-        [actualSessionId, file.path, thumbnailPath, type, file.size, file.originalname]
+        [actualSessionId, `uploads/${relativePath.replace(/\\/g, '/')}`, relativeThumbPath ? `uploads/${relativeThumbPath.replace(/\\/g, '/')}` : null, type, fileSize, file.originalname]
       );
-      
-      // 相対パスを生成
-      const relativePath = path.relative(STORAGE_ROOT, file.path);
-      const relativeThumbPath = thumbnailPath ? path.relative(STORAGE_ROOT, thumbnailPath) : null;
-      
+
       uploadedFiles.push({
         id: result.insertId,
         filename: file.filename,
@@ -900,18 +997,18 @@ app.post('/api/photos/upload', authenticateToken, upload.array('photos', 200), a
         thumbnail_path: relativeThumbPath ? relativeThumbPath.replace(/\\/g, '/') : null
       });
     }
-    
+
     res.json({
       success: true,
       sessionId: actualSessionId,
       files: uploadedFiles,
       message: `${uploadedFiles.length}枚の写真をアップロードしました`
     });
-    
-    logger.info(`写真アップロード: 施設${facilityId}, ${uploadedFiles.length}枚`);
+
+    logger.info(`写真アップロード完了: 施設${facilityId}, ${uploadedFiles.length}枚`);
   } catch (error) {
     logger.error('写真アップロードエラー:', error);
-    res.status(500).json({ error: 'アップロードに失敗しました' });
+    res.status(500).json({ error: `サーバーエラーが発生しました: ${error.message}` });
   }
 });
 
@@ -1261,6 +1358,61 @@ app.post('/api/photos/upload-test', upload.array('photos', 200), async (req, res
   } catch (error) {
     logger.error('テストアップロードエラー:', error);
     res.status(500).json({ error: 'テストアップロードに失敗しました', details: error.message });
+  }
+});
+
+// ===== テスト用アルバム取得（認証なし） =====
+app.get('/api/albums-test/:facilityId', async (req, res) => {
+  try {
+    const { facilityId } = req.params;
+    const { date } = req.query;
+
+    let query = `
+      SELECT cs.*,
+             u.name as uploaded_by,
+             COUNT(p.id) as photo_count
+      FROM cleaning_sessions cs
+      LEFT JOIN users u ON cs.staff_user_id = u.id
+      LEFT JOIN photos p ON cs.id = p.cleaning_session_id
+      WHERE cs.facility_id = ?
+    `;
+    const params = [facilityId];
+
+    if (date) {
+      query += ' AND cs.cleaning_date = ?';
+      params.push(date);
+    }
+
+    query += ' GROUP BY cs.id ORDER BY cs.cleaning_date DESC';
+
+    const [sessions] = await pool.execute(query, params);
+
+    // 各セッションの写真を取得
+    for (const session of sessions) {
+      const [photos] = await pool.execute(
+        'SELECT id, type, file_path, thumbnail_path, uploaded_at FROM photos WHERE cleaning_session_id = ?',
+        [session.id]
+      );
+
+      // パスをURLに変換（正規化関数を使用）
+      session.photos = photos.map(photo => {
+        // DBから取得したパスがすでに "uploads/photos/..." 形式なので
+        // そのまま /uploads 以下に配置する URLとして返す
+        const dbPath = photo.file_path || '';
+        const dbThumbPath = photo.thumbnail_path || '';
+
+        return {
+          ...photo,
+          url: `/${dbPath}`,
+          thumbnailUrl: dbThumbPath ? `/${dbThumbPath}` : null
+        };
+      });
+    }
+
+    res.json(sessions);
+  } catch (error) {
+    logger.error('テストアルバム取得エラー:', error);
+    res.status(500).json({ error: 'サーバーエラーが発生しました', details: error.message });
   }
 });
 

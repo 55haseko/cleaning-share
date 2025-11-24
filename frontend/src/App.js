@@ -153,7 +153,7 @@ const ClientDashboard = ({ user, onLogout }) => {
     if (!selectedAlbum || !selectedFacility) return;
 
     try {
-      const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
+      const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
       const token = localStorage.getItem('authToken');
 
       const url = `${API_BASE_URL}/albums/${selectedFacility.id}/${selectedAlbum.id}/download`;

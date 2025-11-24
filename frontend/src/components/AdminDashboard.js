@@ -1195,7 +1195,7 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
                                 const imageUrl = receipt.url;
                                 const fullUrl = imageUrl.startsWith('http')
                                   ? imageUrl
-                                  : `${process.env.REACT_APP_API_URL?.replace('/api', '') || 'http://localhost:4000'}${imageUrl}`;
+                                  : `${process.env.REACT_APP_API_URL?.replace('/api', '') || 'http://localhost:8000'}${imageUrl}`;
 
                                 return (
                                   <div key={receipt.id} style={{position: 'relative', paddingBottom: '100%', backgroundColor: '#f0f0f0', borderRadius: '8px', overflow: 'hidden'}}>
@@ -1368,7 +1368,7 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
                       const imageUrl = photo.thumbnailUrl || photo.url;
                       const fullUrl = imageUrl.startsWith('http')
                         ? imageUrl
-                        : `${process.env.REACT_APP_API_URL?.replace('/api', '') || 'http://localhost:4000'}${imageUrl}`;
+                        : `${process.env.REACT_APP_API_URL?.replace('/api', '') || 'http://localhost:8000'}${imageUrl}`;
 
                       return (
                       <div key={photo.id} style={{position: 'relative', paddingBottom: '100%', backgroundColor: '#f0f0f0', borderRadius: '8px', overflow: 'hidden'}}>

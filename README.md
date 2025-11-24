@@ -64,7 +64,7 @@ cp .env.example .env
 
 最低限必要な設定:
 ```env
-PORT=4000
+PORT=8000
 CORS_ORIGIN=http://localhost:3000
 DB_HOST=localhost
 DB_USER=cleaning_user
@@ -76,7 +76,7 @@ JWT_SECRET=your-secure-secret-key-change-this-in-production
 #### フロントエンド (`frontend/.env`)
 
 ```env
-REACT_APP_API_URL=http://localhost:4000/api
+REACT_APP_API_URL=http://localhost:8000/api
 ```
 
 ### 3. データベースのセットアップ
@@ -110,7 +110,7 @@ SOURCE backend/database_schema.sql;
 
 | 変数名 | 説明 | デフォルト値 | 例 |
 |--------|------|------------|-----|
-| PORT | サーバーポート | 4000 | 4000 |
+| PORT | サーバーポート | 8000 | 8000 |
 | CORS_ORIGIN | フロントエンドURL | - | http://localhost:3000 |
 | DB_HOST | DBホスト | localhost | localhost |
 | DB_USER | DBユーザー | - | cleaning_user |
@@ -119,7 +119,7 @@ SOURCE backend/database_schema.sql;
 | JWT_SECRET | JWT署名キー | - | (ランダム文字列) |
 | STORAGE_DRIVER | ストレージタイプ | local | local |
 | STORAGE_ROOT | ファイル保存ルート | ./uploads_dev | ./uploads_dev |
-| PUBLIC_BASE_URL | 公開URL基準 | (相対URL) | http://localhost:4000 |
+| PUBLIC_BASE_URL | 公開URL基準 | (相対URL) | http://localhost:8000 |
 | RETENTION_DAYS | 写真保持日数 | 60 | 60 |
 | MAX_FILE_MB | ファイルサイズ上限(MB) | 20 | 20 |
 
@@ -127,14 +127,14 @@ SOURCE backend/database_schema.sql;
 
 | 変数名 | 説明 | 例 |
 |--------|------|----|
-| REACT_APP_API_URL | バックエンドAPI URL | http://localhost:4000/api |
+| REACT_APP_API_URL | バックエンドAPI URL | http://localhost:8000/api |
 
 ## API使用例
 
 ### 認証
 ```bash
 # ログイン
-curl -X POST http://localhost:4000/api/auth/login \
+curl -X POST http://localhost:8000/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email":"test@example.com","password":"password"}'
 
@@ -144,7 +144,7 @@ curl -X POST http://localhost:4000/api/auth/login \
 
 ### 写真アップロード
 ```bash
-curl -X POST http://localhost:4000/api/upload/photo \
+curl -X POST http://localhost:8000/api/upload/photo \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -F "file=@photo.jpg" \
   -F "facilityId=123" \
@@ -157,7 +157,7 @@ curl -X POST http://localhost:4000/api/upload/photo \
 
 ### 領収書アップロード
 ```bash
-curl -X POST http://localhost:4000/api/upload/receipt \
+curl -X POST http://localhost:8000/api/upload/receipt \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -F "file=@receipt.pdf" \
   -F "facilityId=123" \

@@ -27,7 +27,7 @@ export const albumsApi = {
 
   // アルバムダウンロード
   async download(facilityId, sessionId) {
-    const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
+    const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
     const url = `${API_BASE}/albums/${facilityId}/${sessionId}/download`;
     const token = localStorage.getItem('authToken');
 
