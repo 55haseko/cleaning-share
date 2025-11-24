@@ -275,6 +275,8 @@ const StaffDashboardNew = ({ user, onLogout }) => {
     try {
       const today = new Date().toISOString().split('T')[0];
       let sessionId = null;
+      let newBeforeErrors = uploadErrors.before;
+      let newAfterErrors = uploadErrors.after;
 
       // 清掃前の失敗分を再試行
       if (uploadErrors.before.length > 0) {
@@ -297,9 +299,11 @@ const StaffDashboardNew = ({ user, onLogout }) => {
         );
 
         if (result.success) {
+          newBeforeErrors = [];
           setUploadErrors(prev => ({ ...prev, before: [] }));
           setUploadStats(prev => ({ ...prev, failed: prev.failed - result.successCount }));
         } else {
+          newBeforeErrors = result.stillFailedErrors;
           setUploadErrors(prev => ({ ...prev, before: result.stillFailedErrors }));
         }
 
@@ -328,15 +332,17 @@ const StaffDashboardNew = ({ user, onLogout }) => {
         );
 
         if (result.success) {
+          newAfterErrors = [];
           setUploadErrors(prev => ({ ...prev, after: [] }));
           setUploadStats(prev => ({ ...prev, failed: prev.failed - result.successCount }));
         } else {
+          newAfterErrors = result.stillFailedErrors;
           setUploadErrors(prev => ({ ...prev, after: result.stillFailedErrors }));
         }
       }
 
-      // 全て成功したら完了
-      const stillHasErrors = uploadErrors.before.length > 0 || uploadErrors.after.length > 0;
+      // 全て成功したら完了（新しいエラー状態を参照）
+      const stillHasErrors = newBeforeErrors.length > 0 || newAfterErrors.length > 0;
       if (!stillHasErrors) {
         setUploadProgress(100);
         setUploadStatus('再試行完了！');
