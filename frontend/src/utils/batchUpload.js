@@ -53,8 +53,9 @@ export async function batchUploadPhotos(facilityId, photos, type, options = {}) 
   if (batches.length > 0 && !sessionId) {
     const firstBatch = batches[0];
     let retries = 0;
+    let sessionIdAcquired = false;
 
-    while (retries < MAX_RETRIES) {
+    while (retries < MAX_RETRIES && !sessionIdAcquired) {
       try {
         console.log(`[バッチ${firstBatch.index + 1}/${batches.length}] アップロード開始（シリアル）: ${firstBatch.photos.length}枚`);
 
@@ -68,7 +69,10 @@ export async function batchUploadPhotos(facilityId, photos, type, options = {}) 
         // セッションIDを取得して保持
         if (result.sessionId) {
           sessionId = result.sessionId;
+          sessionIdAcquired = true;
           console.log(`[バッチ${firstBatch.index + 1}/${batches.length}] sessionId確定: ${sessionId}`);
+        } else {
+          throw new Error('サーバーからsessionIdが返されませんでした');
         }
 
         console.log(`[バッチ${firstBatch.index + 1}/${batches.length}] 完了: ${result.files?.length || 0}枚`);
@@ -130,7 +134,9 @@ export async function batchUploadPhotos(facilityId, photos, type, options = {}) 
       throw new Error('sessionIdが確定されていません。最初のバッチのアップロードに失敗した可能性があります。');
     }
 
-    console.log(`[バッチアップロード] 並列グループ${Math.floor(i / MAX_PARALLEL) + 2}を開始（sessionId: ${sessionId}）`);
+    const currentSessionId = sessionId;  // ← 現在のsessionIdをキャプチャ
+    const groupNumber = Math.floor(i / MAX_PARALLEL) + 2;
+    console.log(`[バッチアップロード] 並列グループ${groupNumber}を開始（sessionId: ${currentSessionId}）`);
 
     // 並列バッチの処理（既に sessionId が確定している）
     const batchResults = await Promise.allSettled(
@@ -139,19 +145,19 @@ export async function batchUploadPhotos(facilityId, photos, type, options = {}) 
 
         while (retries < MAX_RETRIES) {
           try {
-            console.log(`[バッチ${batch.index + 1}/${batches.length}] アップロード開始（並列）: ${batch.photos.length}枚、sessionId: ${sessionId}`);
+            console.log(`[バッチ${batch.index + 1}/${batches.length}] アップロード開始（並列）: ${batch.photos.length}枚、sessionId: ${currentSessionId}`);
 
             const result = await photosApi.upload(
               facilityId,
               batch.photos,
               type,
-              { date, sessionId }  // ← 確定されたsessionIdを使用
+              { date, sessionId: currentSessionId }  // ← キャプチャされたsessionIdを使用
             );
 
             // sessionIdの再確認（異なるsessionIdが返ってきた場合は警告）
-            if (result.sessionId && result.sessionId !== sessionId) {
-              console.warn(`[警告] バッチ${batch.index + 1}が異なるsessionIdを返しました: ${result.sessionId} (期待値: ${sessionId})`);
-              // 既に確定したsessionIdを使い続ける
+            if (result.sessionId && result.sessionId !== currentSessionId) {
+              console.warn(`[警告] バッチ${batch.index + 1}が異なるsessionIdを返しました: ${result.sessionId} (期待値: ${currentSessionId})`);
+              // グローバルのsessionIdを更新しない（既に確定したものを使用）
             }
 
             console.log(`[バッチ${batch.index + 1}/${batches.length}] 完了: ${result.files?.length || 0}枚`);
