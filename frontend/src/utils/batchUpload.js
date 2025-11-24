@@ -49,28 +49,100 @@ export async function batchUploadPhotos(facilityId, photos, type, options = {}) 
   const results = [];
   const errors = [];
 
-  // バッチを並列処理グループに分割
-  for (let i = 0; i < batches.length; i += MAX_PARALLEL) {
-    const parallelBatches = batches.slice(i, Math.min(i + MAX_PARALLEL, batches.length));
+  // 最初のバッチはシリアルに実行してsessionIdを確定（重要！）
+  if (batches.length > 0 && !sessionId) {
+    const firstBatch = batches[0];
+    let retries = 0;
 
-    // 並列バッチの処理
+    while (retries < MAX_RETRIES) {
+      try {
+        console.log(`[バッチ${firstBatch.index + 1}/${batches.length}] アップロード開始（シリアル）: ${firstBatch.photos.length}枚`);
+
+        const result = await photosApi.upload(
+          facilityId,
+          firstBatch.photos,
+          type,
+          { date, sessionId }
+        );
+
+        // セッションIDを取得して保持
+        if (result.sessionId) {
+          sessionId = result.sessionId;
+          console.log(`[バッチ${firstBatch.index + 1}/${batches.length}] sessionId確定: ${sessionId}`);
+        }
+
+        console.log(`[バッチ${firstBatch.index + 1}/${batches.length}] 完了: ${result.files?.length || 0}枚`);
+
+        // バッチ完了コールバック
+        if (onBatchComplete) {
+          onBatchComplete(firstBatch.index, result);
+        }
+
+        // 進捗更新
+        uploadedCount += firstBatch.photos.length;
+        if (onProgress) {
+          onProgress(uploadedCount, photos.length, 1, batches.length);
+        }
+
+        results.push({
+          batchIndex: firstBatch.index,
+          success: true,
+          result
+        });
+
+        break;  // 成功したのでループを抜ける
+
+      } catch (error) {
+        retries++;
+        console.error(`[バッチ${firstBatch.index + 1}/${batches.length}] エラー (試行${retries}/${MAX_RETRIES}):`, error);
+
+        if (retries >= MAX_RETRIES) {
+          console.error(`[バッチ${firstBatch.index + 1}/${batches.length}] 失敗: リトライ上限に達しました`);
+
+          if (onError) {
+            onError(firstBatch.index, error);
+          }
+
+          errors.push({
+            batchIndex: firstBatch.index,
+            photos: firstBatch.photos,
+            error
+          });
+
+          break;
+        }
+
+        const delay = RETRY_DELAY_BASE * Math.pow(2, retries - 1);
+        console.log(`[バッチ${firstBatch.index + 1}/${batches.length}] ${delay}ms後にリトライします...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+
+  // 2番目以降のバッチを並列処理グループに分割
+  const remainingBatches = batches.slice(1);  // 最初のバッチをスキップ
+  for (let i = 0; i < remainingBatches.length; i += MAX_PARALLEL) {
+    const parallelBatches = remainingBatches.slice(i, Math.min(i + MAX_PARALLEL, remainingBatches.length));
+
+    // 並列バッチの処理（既に sessionId が確定している）
     const batchResults = await Promise.allSettled(
       parallelBatches.map(async (batch) => {
         let retries = 0;
 
         while (retries < MAX_RETRIES) {
           try {
-            console.log(`[バッチ${batch.index + 1}/${batches.length}] アップロード開始: ${batch.photos.length}枚`);
+            console.log(`[バッチ${batch.index + 1}/${batches.length}] アップロード開始（並列）: ${batch.photos.length}枚`);
 
             const result = await photosApi.upload(
               facilityId,
               batch.photos,
               type,
-              { date, sessionId }
+              { date, sessionId }  // ← 確定されたsessionIdを使用
             );
 
-            // セッションIDを保持（最初のレスポンスから取得）
+            // sessionIdの再確認（念のため）
             if (result.sessionId && !sessionId) {
+              console.warn(`[予期しない] sessionIdが新規作成されました: ${result.sessionId}`);
               sessionId = result.sessionId;
             }
 
