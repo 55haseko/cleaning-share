@@ -84,7 +84,15 @@ if (process.env.NODE_ENV !== 'production') {
 // レート制限（DDoS対策）
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15分
-  max: 100 // 最大100リクエスト
+  max: 500, // 最大500リクエスト（本番環境なのでRelaxed）
+  keyGenerator: (req) => {
+    // X-Forwarded-Forヘッダーがあれば使用（nginx reverse proxy対応）
+    return req.headers['x-forwarded-for'] || req.ip;
+  },
+  skip: (req) => {
+    // ヘルスチェックエンドポイントはスキップ
+    return req.path === '/api/health';
+  }
 });
 app.use('/api/', limiter);
 
