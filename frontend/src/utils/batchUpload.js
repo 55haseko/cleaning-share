@@ -124,6 +124,14 @@ export async function batchUploadPhotos(facilityId, photos, type, options = {}) 
   for (let i = 0; i < remainingBatches.length; i += MAX_PARALLEL) {
     const parallelBatches = remainingBatches.slice(i, Math.min(i + MAX_PARALLEL, remainingBatches.length));
 
+    // 重要: 次のグループに進む前に、sessionIdが確定していることを確認
+    if (!sessionId) {
+      console.error(`[致命的エラー] sessionIdが未定義のまま並列処理に進もうとしています`);
+      throw new Error('sessionIdが確定されていません。最初のバッチのアップロードに失敗した可能性があります。');
+    }
+
+    console.log(`[バッチアップロード] 並列グループ${Math.floor(i / MAX_PARALLEL) + 2}を開始（sessionId: ${sessionId}）`);
+
     // 並列バッチの処理（既に sessionId が確定している）
     const batchResults = await Promise.allSettled(
       parallelBatches.map(async (batch) => {
@@ -131,7 +139,7 @@ export async function batchUploadPhotos(facilityId, photos, type, options = {}) 
 
         while (retries < MAX_RETRIES) {
           try {
-            console.log(`[バッチ${batch.index + 1}/${batches.length}] アップロード開始（並列）: ${batch.photos.length}枚`);
+            console.log(`[バッチ${batch.index + 1}/${batches.length}] アップロード開始（並列）: ${batch.photos.length}枚、sessionId: ${sessionId}`);
 
             const result = await photosApi.upload(
               facilityId,
@@ -140,10 +148,10 @@ export async function batchUploadPhotos(facilityId, photos, type, options = {}) 
               { date, sessionId }  // ← 確定されたsessionIdを使用
             );
 
-            // sessionIdの再確認（念のため）
-            if (result.sessionId && !sessionId) {
-              console.warn(`[予期しない] sessionIdが新規作成されました: ${result.sessionId}`);
-              sessionId = result.sessionId;
+            // sessionIdの再確認（異なるsessionIdが返ってきた場合は警告）
+            if (result.sessionId && result.sessionId !== sessionId) {
+              console.warn(`[警告] バッチ${batch.index + 1}が異なるsessionIdを返しました: ${result.sessionId} (期待値: ${sessionId})`);
+              // 既に確定したsessionIdを使い続ける
             }
 
             console.log(`[バッチ${batch.index + 1}/${batches.length}] 完了: ${result.files?.length || 0}枚`);
@@ -204,7 +212,8 @@ export async function batchUploadPhotos(facilityId, photos, type, options = {}) 
     });
 
     // 次の並列グループ前に少し待機（サーバー負荷軽減）
-    if (i + MAX_PARALLEL < batches.length) {
+    if (i + MAX_PARALLEL < remainingBatches.length) {
+      console.log(`[バッチアップロード] 次の並列グループ前に待機中...（確定sessionId: ${sessionId}）`);
       await new Promise(resolve => setTimeout(resolve, 100));
     }
   }
