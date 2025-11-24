@@ -169,10 +169,14 @@ const upload = multer({
     fileSize: 20 * 1024 * 1024 // 20MB制限
   },
   fileFilter: (req, file, cb) => {
-    if (/\.(jpg|jpeg|png|gif|webp)$/i.test(file.originalname)) {
+    // MIMEタイプで判定（拡張子ではなく実際のファイル形式を見る）
+    // browser-image-compressionがHEIC→JPEGに変換するので、JPEGのMIMEタイプを持つ
+    const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+
+    if (allowedMimeTypes.includes(file.mimetype)) {
       return cb(null, true);
     } else {
-      cb(new Error('画像ファイル（JPEG, PNG, GIF, WebP）のみアップロード可能です'));
+      cb(new Error(`画像ファイル（JPEG, PNG, GIF, WebP）のみアップロード可能です。受信: ${file.mimetype}`));
     }
   }
 });

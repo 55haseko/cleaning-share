@@ -252,9 +252,17 @@ const StaffDashboardNew = ({ user, onLogout }) => {
         completedSteps++;
       }
 
-      setUploadProgress(100);
-      setUploadStatus('アップロード完了！');
-      setUploadComplete(true);
+      // エラーがある場合は完了画面を表示しない
+      const hasErrors = uploadErrors.before.length > 0 || uploadErrors.after.length > 0;
+      if (hasErrors) {
+        setUploadProgress(100);
+        setUploadStatus('一部の写真のアップロードに失敗しました');
+        setError(`${uploadErrors.before.length + uploadErrors.after.length}件のアップロードに失敗しました。再試行ボタンをクリックしてください。`);
+      } else {
+        setUploadProgress(100);
+        setUploadStatus('アップロード完了！');
+        setUploadComplete(true);
+      }
 
     } catch (err) {
       console.error('アップロードエラー:', err);

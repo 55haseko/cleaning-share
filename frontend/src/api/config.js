@@ -42,14 +42,30 @@ class ApiClient {
 
     try {
       const response = await fetch(url, config);
-      
+
       if (!response.ok) {
         if (response.status === 401) {
           this.clearToken();
           window.location.href = '/login';
         }
-        const error = await response.json();
-        throw new Error(error.error || 'APIエラーが発生しました');
+
+        // エラーレスポンスをパース（JSON or テキスト）
+        let errorMessage = 'APIエラーが発生しました';
+        try {
+          const contentType = response.headers.get('content-type');
+          if (contentType && contentType.includes('application/json')) {
+            const error = await response.json();
+            errorMessage = error.error || error.message || errorMessage;
+          } else {
+            // JSONでない場合はテキストとして読み取る
+            const text = await response.text();
+            errorMessage = text || errorMessage;
+          }
+        } catch (parseError) {
+          console.error('エラーレスポンスのパースに失敗:', parseError);
+        }
+
+        throw new Error(errorMessage);
       }
 
       return await response.json();
