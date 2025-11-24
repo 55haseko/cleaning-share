@@ -65,6 +65,8 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
   const [selectedSession, setSelectedSession] = useState(null);
   const [albumViewTab, setAlbumViewTab] = useState('photos'); // 'photos' or 'receipts'
   const [receipts, setReceipts] = useState([]);
+  const [photosPerPage] = useState(50); // 1ページあたりの写真数
+  const [currentPhotoPage, setCurrentPhotoPage] = useState(1); // 現在のページ
 
   useEffect(() => {
     loadData();
@@ -1346,6 +1348,7 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
                     onClick={() => {
                       setSelectedSession(null);
                       setAlbumPhotos([]);
+                      setCurrentPhotoPage(1);
                     }}
                     style={styles.cancelBtn}
                   >
@@ -1354,7 +1357,7 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
                 </div>
 
                 <h3 style={{marginBottom: '20px'}}>
-                  {formatDate(selectedSession.cleaning_date)} の写真
+                  {formatDate(selectedSession.cleaning_date)} の写真（全{albumPhotos.length}枚）
                 </h3>
 
                 {albumPhotos.length === 0 ? (
@@ -1362,8 +1365,15 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
                     <p>写真がありません</p>
                   </div>
                 ) : (
-                  <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '16px'}}>
-                    {albumPhotos.map(photo => {
+                  <>
+                    {/* ページネーション情報 */}
+                    <div style={{marginBottom: '20px', padding: '12px', backgroundColor: '#f9f9f9', borderRadius: '8px', textAlign: 'center', fontSize: '14px', color: '#666'}}>
+                      <span>{((currentPhotoPage - 1) * photosPerPage) + 1} - {Math.min(currentPhotoPage * photosPerPage, albumPhotos.length)} 件目を表示中（全{albumPhotos.length}枚）</span>
+                    </div>
+
+                    {/* 写真グリッド */}
+                    <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '16px', marginBottom: '20px'}}>
+                      {albumPhotos.slice((currentPhotoPage - 1) * photosPerPage, currentPhotoPage * photosPerPage).map(photo => {
                       // URLを構築（既にフルURLの場合はそのまま使用）
                       const imageUrl = photo.thumbnailUrl || photo.url;
                       const fullUrl = imageUrl.startsWith('http')
@@ -1424,7 +1434,49 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
                       </div>
                       );
                     })}
-                  </div>
+                    </div>
+
+                    {/* ページネーションボタン */}
+                    {Math.ceil(albumPhotos.length / photosPerPage) > 1 && (
+                      <div style={{display: 'flex', justifyContent: 'center', gap: '8px', marginTop: '20px', flexWrap: 'wrap'}}>
+                        {currentPhotoPage > 1 && (
+                          <button
+                            onClick={() => setCurrentPhotoPage(currentPhotoPage - 1)}
+                            style={{padding: '8px 16px', backgroundColor: '#9333ea', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer'}}
+                          >
+                            ← 前へ
+                          </button>
+                        )}
+
+                        {[...Array(Math.ceil(albumPhotos.length / photosPerPage))].map((_, i) => (
+                          <button
+                            key={i + 1}
+                            onClick={() => setCurrentPhotoPage(i + 1)}
+                            style={{
+                              padding: '8px 12px',
+                              backgroundColor: currentPhotoPage === i + 1 ? '#9333ea' : '#e0e0e0',
+                              color: currentPhotoPage === i + 1 ? 'white' : '#333',
+                              border: 'none',
+                              borderRadius: '4px',
+                              cursor: 'pointer',
+                              fontWeight: currentPhotoPage === i + 1 ? 'bold' : 'normal'
+                            }}
+                          >
+                            {i + 1}
+                          </button>
+                        ))}
+
+                        {currentPhotoPage < Math.ceil(albumPhotos.length / photosPerPage) && (
+                          <button
+                            onClick={() => setCurrentPhotoPage(currentPhotoPage + 1)}
+                            style={{padding: '8px 16px', backgroundColor: '#9333ea', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer'}}
+                          >
+                            次へ →
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             )}
