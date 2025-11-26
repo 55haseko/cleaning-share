@@ -14,6 +14,7 @@ import { monthlyCheckApi } from '../api/monthlyCheck.js';
 import PhotoSelector from './PhotoSelector.js';
 import { batchUploadPhotos, retryFailedBatches } from '../utils/batchUpload.js';
 import UploadProgress from './UploadProgress.js';
+import PDFPreview from './PDFPreview.js';
 
 const StaffDashboardNew = ({ user, onLogout }) => {
   // 施設選択画面の状態
@@ -692,21 +693,39 @@ const StaffDashboardNew = ({ user, onLogout }) => {
                       </div>
                     ) : (
                       <>
-                        <div className="space-y-2 mb-3">
-                          {receipts.map(receipt => (
-                            <div key={receipt.id} className="flex items-center justify-between p-3 bg-white rounded-lg border border-gray-200">
-                              <div className="flex items-center gap-3">
-                                <FileText className="w-5 h-5 text-blue-600" />
-                                <span className="text-sm text-gray-700 truncate">{receipt.name}</span>
+                        <div className="grid grid-cols-2 gap-3 mb-3">
+                          {receipts.map(receipt => {
+                            const isPDF = receipt.name.toLowerCase().endsWith('.pdf');
+                            const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(receipt.name);
+
+                            return (
+                              <div key={receipt.id} className="relative bg-white rounded-lg border border-gray-200 overflow-hidden">
+                                {/* プレビュー表示 */}
+                                <div className="w-full bg-gray-100 aspect-square flex items-center justify-center relative">
+                                  {isImage ? (
+                                    <img src={receipt.url} alt={receipt.name} className="w-full h-full object-contain" />
+                                  ) : isPDF ? (
+                                    <div className="w-full h-full bg-white">
+                                      <PDFPreview file={receipt.file} className="w-full h-full" />
+                                    </div>
+                                  ) : (
+                                    <div className="text-center">
+                                      <FileText className="w-12 h-12 text-gray-400 mx-auto mb-2" />
+                                      <span className="text-xs text-gray-600">{receipt.name}</span>
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* 削除ボタン */}
+                                <button
+                                  onClick={() => removeReceipt(receipt.id)}
+                                  className="absolute top-1 right-1 bg-red-600 text-white rounded-full p-1 hover:bg-red-700"
+                                >
+                                  <X className="w-4 h-4" />
+                                </button>
                               </div>
-                              <button
-                                onClick={() => removeReceipt(receipt.id)}
-                                className="text-red-600 hover:text-red-800"
-                              >
-                                <X className="w-4 h-4" />
-                              </button>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                         <button
                           onClick={() => receiptInputRef.current?.click()}

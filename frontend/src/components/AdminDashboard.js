@@ -1247,7 +1247,7 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
                                           left: 0,
                                           width: '100%',
                                           height: '100%',
-                                          objectFit: 'cover',
+                                          objectFit: 'contain',
                                           cursor: 'pointer'
                                         }}
                                       />
@@ -1407,7 +1407,7 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
                     </div>
 
                     {/* 写真グリッド */}
-                    <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '16px', marginBottom: '20px'}}>
+                    <div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(80px, 1fr))', gap: '16px', marginBottom: '20px'}}>
                       {albumPhotos.slice((currentPhotoPage - 1) * photosPerPage, currentPhotoPage * photosPerPage).map(photo => {
                       // URLを構築（既にフルURLの場合はそのまま使用）
                       const imageUrl = photo.thumbnailUrl || photo.url;
@@ -1427,27 +1427,27 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
                             left: 0,
                             width: '100%',
                             height: '100%',
-                            objectFit: 'cover',
+                            objectFit: 'contain',
                             cursor: 'pointer'
                           }}
                         />
                         <div style={{
                           position: 'absolute',
-                          top: '8px',
-                          left: '8px',
+                          top: '4px',
+                          left: '4px',
                           backgroundColor: photo.type === 'before' ? '#dc3545' : '#28a745',
                           color: 'white',
-                          padding: '4px 8px',
-                          borderRadius: '4px',
-                          fontSize: '12px',
+                          padding: '2px 4px',
+                          borderRadius: '3px',
+                          fontSize: '9px',
                           fontWeight: '600'
                         }}>
                           {photo.type === 'before' ? '清掃前' : '清掃後'}
                         </div>
                         <div style={{
                           position: 'absolute',
-                          top: '8px',
-                          right: '8px'
+                          top: '4px',
+                          right: '4px'
                         }}>
                           <button
                             onClick={() => handleDeletePhoto(photo.id)}
@@ -1456,11 +1456,15 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
                               color: 'white',
                               border: 'none',
                               borderRadius: '50%',
-                              width: '32px',
-                              height: '32px',
+                              width: '22px',
+                              height: '22px',
                               cursor: 'pointer',
-                              fontSize: '16px',
-                              fontWeight: 'bold'
+                              fontSize: '12px',
+                              fontWeight: 'bold',
+                              padding: '0',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center'
                             }}
                           >
                             ×
