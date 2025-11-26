@@ -92,12 +92,18 @@ export async function compressImages(files, onProgress = null, options = {}) {
 }
 
 /**
- * ファイルが画像かどうかを判定
+ * ファイルが画像かどうかを判定（HEIC/HEIF含む）
  * @param {File} file - ファイル
  * @returns {boolean} 画像の場合true
  */
 export function isImageFile(file) {
-  return file && file.type && file.type.startsWith('image/');
+  if (!file || !file.type) return false;
+  // 標準的な画像タイプ + HEIC/HEIF
+  return file.type.startsWith('image/') ||
+         file.type === 'image/heic' ||
+         file.type === 'image/heif' ||
+         file.name.toLowerCase().endsWith('.heic') ||
+         file.name.toLowerCase().endsWith('.heif');
 }
 
 /**

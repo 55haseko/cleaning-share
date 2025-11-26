@@ -325,7 +325,7 @@ app.post('/api/auth/login', async (req, res) => {
       JWT_SECRET,
       { expiresIn: '24h' }
     );
-    
+
     // ユーザーに関連する施設を取得（削除済みを除外）
     let facilities = [];
     if (user.role === 'staff') {
@@ -333,8 +333,11 @@ app.post('/api/auth/login', async (req, res) => {
       const [allFacilities] = await connection.execute('SELECT * FROM facilities WHERE is_deleted = FALSE');
       facilities = allFacilities;
     } else if (user.role === 'client') {
+      // クライアントは facility_clients で指定された複数施設にアクセス可能
       const [clientFacilities] = await connection.execute(
-        'SELECT * FROM facilities WHERE client_user_id = ? AND is_deleted = FALSE',
+        `SELECT DISTINCT f.* FROM facilities f
+         INNER JOIN facility_clients fc ON f.id = fc.facility_id
+         WHERE fc.client_user_id = ? AND fc.removed_at IS NULL AND f.is_deleted = FALSE`,
         [user.id]
       );
       facilities = clientFacilities;
@@ -342,7 +345,7 @@ app.post('/api/auth/login', async (req, res) => {
       const [allFacilities] = await connection.execute('SELECT * FROM facilities WHERE is_deleted = FALSE');
       facilities = allFacilities;
     }
-    
+
     res.json({
       token,
       user: {
@@ -393,8 +396,11 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
       const [allFacilities] = await connection.execute('SELECT * FROM facilities WHERE is_deleted = FALSE');
       facilities = allFacilities;
     } else if (user.role === 'client') {
+      // クライアントは facility_clients で指定された複数施設にアクセス可能
       const [clientFacilities] = await connection.execute(
-        'SELECT * FROM facilities WHERE client_user_id = ? AND is_deleted = FALSE',
+        `SELECT DISTINCT f.* FROM facilities f
+         INNER JOIN facility_clients fc ON f.id = fc.facility_id
+         WHERE fc.client_user_id = ? AND fc.removed_at IS NULL AND f.is_deleted = FALSE`,
         [user.id]
       );
       facilities = clientFacilities;
@@ -720,7 +726,11 @@ app.get('/api/facilities', authenticateToken, async (req, res) => {
     if (req.user.role === 'admin') {
       query = 'SELECT * FROM facilities WHERE is_deleted = FALSE';
     } else if (req.user.role === 'client') {
-      query = 'SELECT * FROM facilities WHERE client_user_id = ? AND is_deleted = FALSE';
+      // クライアントは facility_clients で指定された複数施設にアクセス可能
+      query = `SELECT DISTINCT f.* FROM facilities f
+               INNER JOIN facility_clients fc ON f.id = fc.facility_id
+               WHERE fc.client_user_id = ? AND fc.removed_at IS NULL AND f.is_deleted = FALSE
+               ORDER BY f.name`;
       params = [req.user.id];
     } else if (req.user.role === 'staff') {
       // スタッフは全施設にアクセス可能（削除済みを除く）
@@ -737,14 +747,54 @@ app.get('/api/facilities', authenticateToken, async (req, res) => {
 
 app.post('/api/facilities', authenticateToken, requireAdmin, async (req, res) => {
   try {
-    const { name, address, client_user_id } = req.body;
+    const { name, address, client_user_id, clientUserIds } = req.body;
+
+    // バリデーション
+    if (!name) {
+      return res.status(400).json({ error: '施設名は必須です' });
+    }
+
+    // 後方互換性のため client_user_id を使用（単一クライアント）
+    const primaryClientId = client_user_id || (clientUserIds && clientUserIds.length > 0 ? clientUserIds[0] : null);
 
     const [result] = await pool.execute(
       'INSERT INTO facilities (name, address, client_user_id) VALUES (?, ?, ?)',
-      [name, address, client_user_id]
+      [name, address, primaryClientId || null]
     );
 
-    res.status(201).json({ id: result.insertId, name, address, client_user_id });
+    const facilityId = result.insertId;
+
+    // 複数クライアントを割り当てる場合
+    if (clientUserIds && Array.isArray(clientUserIds) && clientUserIds.length > 0) {
+      for (const clientId of clientUserIds) {
+        try {
+          await pool.execute(
+            'INSERT INTO facility_clients (facility_id, client_user_id) VALUES (?, ?)',
+            [facilityId, clientId]
+          );
+        } catch (error) {
+          logger.warn(`クライアント割当に失敗: 施設ID=${facilityId}, クライアントID=${clientId}`);
+        }
+      }
+    } else if (primaryClientId) {
+      // 単一クライアントの場合も facility_clients に記録
+      try {
+        await pool.execute(
+          'INSERT INTO facility_clients (facility_id, client_user_id) VALUES (?, ?)',
+          [facilityId, primaryClientId]
+        );
+      } catch (error) {
+        logger.warn(`クライアント割当に失敗: 施設ID=${facilityId}, クライアントID=${primaryClientId}`);
+      }
+    }
+
+    res.status(201).json({
+      id: facilityId,
+      name,
+      address,
+      client_user_id: primaryClientId,
+      message: '施設を作成しました'
+    });
     logger.info(`新規施設作成: ${name}`);
   } catch (error) {
     logger.error('施設作成エラー:', error);
@@ -824,6 +874,150 @@ app.delete('/api/facilities/:facilityId', authenticateToken, requireAdmin, async
     logger.info(`施設論理削除: ID=${facilityId}, ${existing[0].name}`);
   } catch (error) {
     logger.error('施設削除エラー:', error);
+    res.status(500).json({ error: 'サーバーエラーが発生しました' });
+  }
+});
+
+// ===== 施設クライアント管理（複数クライアント対応） =====
+
+// 施設に割り当てられたクライアント一覧を取得
+app.get('/api/facilities/:facilityId/clients', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { facilityId } = req.params;
+
+    // 施設が存在するかチェック
+    const [facility] = await pool.execute(
+      'SELECT id FROM facilities WHERE id = ? AND is_deleted = FALSE',
+      [facilityId]
+    );
+
+    if (facility.length === 0) {
+      return res.status(404).json({ error: '施設が見つかりません' });
+    }
+
+    // 割り当てられたクライアントを取得（削除済みを除外）
+    const [clients] = await pool.execute(
+      `SELECT u.id, u.email, u.name, fc.assigned_at
+       FROM facility_clients fc
+       INNER JOIN users u ON fc.client_user_id = u.id
+       WHERE fc.facility_id = ? AND fc.removed_at IS NULL
+       ORDER BY u.name`,
+      [facilityId]
+    );
+
+    res.json(clients);
+  } catch (error) {
+    logger.error('施設クライアント一覧取得エラー:', error);
+    res.status(500).json({ error: 'サーバーエラーが発生しました' });
+  }
+});
+
+// クライアントを施設に割り当てる
+app.post('/api/facilities/:facilityId/clients', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { facilityId } = req.params;
+    const { clientUserId } = req.body;
+
+    // バリデーション
+    if (!clientUserId) {
+      return res.status(400).json({ error: 'clientUserId が必要です' });
+    }
+
+    // 施設が存在するかチェック
+    const [facility] = await pool.execute(
+      'SELECT id FROM facilities WHERE id = ? AND is_deleted = FALSE',
+      [facilityId]
+    );
+
+    if (facility.length === 0) {
+      return res.status(404).json({ error: '施設が見つかりません' });
+    }
+
+    // クライアントが存在するかチェック
+    const [client] = await pool.execute(
+      'SELECT id FROM users WHERE id = ? AND role = ? AND is_active = TRUE',
+      [clientUserId, 'client']
+    );
+
+    if (client.length === 0) {
+      return res.status(404).json({ error: 'クライアントユーザーが見つかりません' });
+    }
+
+    // 既に割り当てられているかチェック
+    const [existing] = await pool.execute(
+      'SELECT id FROM facility_clients WHERE facility_id = ? AND client_user_id = ? AND removed_at IS NULL',
+      [facilityId, clientUserId]
+    );
+
+    if (existing.length > 0) {
+      return res.status(409).json({ error: 'このクライアントは既に割り当てられています' });
+    }
+
+    // クライアントを割り当てる
+    const [result] = await pool.execute(
+      'INSERT INTO facility_clients (facility_id, client_user_id) VALUES (?, ?)',
+      [facilityId, clientUserId]
+    );
+
+    res.status(201).json({
+      id: result.insertId,
+      facilityId,
+      clientUserId,
+      assignedAt: new Date()
+    });
+
+    logger.info(`クライアント割当: 施設ID=${facilityId}, クライアントID=${clientUserId}`);
+  } catch (error) {
+    logger.error('クライアント割当エラー:', error);
+    res.status(500).json({ error: 'サーバーエラーが発生しました' });
+  }
+});
+
+// クライアントを施設から削除
+app.delete('/api/facilities/:facilityId/clients/:clientUserId', authenticateToken, requireAdmin, async (req, res) => {
+  try {
+    const { facilityId, clientUserId } = req.params;
+
+    // 施設が存在するかチェック
+    const [facility] = await pool.execute(
+      'SELECT id FROM facilities WHERE id = ? AND is_deleted = FALSE',
+      [facilityId]
+    );
+
+    if (facility.length === 0) {
+      return res.status(404).json({ error: '施設が見つかりません' });
+    }
+
+    // クライアント割当が存在するかチェック
+    const [existing] = await pool.execute(
+      'SELECT id FROM facility_clients WHERE facility_id = ? AND client_user_id = ? AND removed_at IS NULL',
+      [facilityId, clientUserId]
+    );
+
+    if (existing.length === 0) {
+      return res.status(404).json({ error: 'クライアント割当が見つかりません' });
+    }
+
+    // 施設に最低1人のクライアントが残っているかチェック
+    const [remainingClients] = await pool.execute(
+      'SELECT COUNT(*) as count FROM facility_clients WHERE facility_id = ? AND removed_at IS NULL AND client_user_id != ?',
+      [facilityId, clientUserId]
+    );
+
+    if (remainingClients[0].count === 0) {
+      return res.status(400).json({ error: '施設には最低1人のクライアントが必要です' });
+    }
+
+    // クライアント割当を削除（論理削除）
+    await pool.execute(
+      'UPDATE facility_clients SET removed_at = NOW() WHERE facility_id = ? AND client_user_id = ?',
+      [facilityId, clientUserId]
+    );
+
+    res.json({ message: 'クライアント割当を削除しました' });
+    logger.info(`クライアント削除: 施設ID=${facilityId}, クライアントID=${clientUserId}`);
+  } catch (error) {
+    logger.error('クライアント削除エラー:', error);
     res.status(500).json({ error: 'サーバーエラーが発生しました' });
   }
 });

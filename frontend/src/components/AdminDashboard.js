@@ -8,6 +8,7 @@ import { statsApi } from '../api/stats.js';
 import { albumsApi } from '../api/albums.js';
 import { photosApi } from '../api/photos.js';
 import { receiptsApi } from '../api/receipts.js';
+import FacilityClientsManager from './FacilityClientsManager.js';
 
 const AdminDashboard = ({ currentUser, onLogout }) => {
   const [activeTab, setActiveTab] = useState('overview'); // overview, facilities, users, albums, reports
@@ -44,7 +45,8 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
     id: null,
     name: '',
     address: '',
-    client_user_id: null
+    client_user_id: null,
+    clientUserIds: [] // 複数クライアント対応
   });
 
   // 施設管理の検索・ソート状態
@@ -666,6 +668,17 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
                     キャンセル
                   </button>
                 </div>
+
+                {facilityForm.id && (
+                  <FacilityClientsManager
+                    facilityId={facilityForm.id}
+                    clientUsers={clientUsers}
+                    onUpdate={() => {
+                      // クライアント管理が更新されたら施設リストを再読み込み
+                      loadData();
+                    }}
+                  />
+                )}
               </form>
             )}
 
@@ -1197,7 +1210,7 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
                                 const imageUrl = receipt.url;
                                 const fullUrl = imageUrl.startsWith('http')
                                   ? imageUrl
-                                  : `${process.env.REACT_APP_API_URL?.replace('/api', '') || 'http://localhost:8000'}${imageUrl}`;
+                                  : `${process.env.REACT_APP_API_URL?.replace('/api', '') || window.location.origin}${imageUrl}`;
 
                                 return (
                                   <div key={receipt.id} style={{position: 'relative', paddingBottom: '100%', backgroundColor: '#f0f0f0', borderRadius: '8px', overflow: 'hidden'}}>
@@ -1378,7 +1391,7 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
                       const imageUrl = photo.thumbnailUrl || photo.url;
                       const fullUrl = imageUrl.startsWith('http')
                         ? imageUrl
-                        : `${process.env.REACT_APP_API_URL?.replace('/api', '') || 'http://localhost:8000'}${imageUrl}`;
+                        : `${process.env.REACT_APP_API_URL?.replace('/api', '') || window.location.origin}${imageUrl}`;
 
                       return (
                       <div key={photo.id} style={{position: 'relative', paddingBottom: '100%', backgroundColor: '#f0f0f0', borderRadius: '8px', overflow: 'hidden'}}>

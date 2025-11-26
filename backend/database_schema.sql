@@ -24,6 +24,22 @@ CREATE TABLE IF NOT EXISTS facilities (
     ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB;
 
+-- クライアントと施設の割当（多対多）
+CREATE TABLE IF NOT EXISTS facility_clients (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  facility_id INT NOT NULL,
+  client_user_id INT NOT NULL,
+  assigned_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  removed_at TIMESTAMP NULL,
+  UNIQUE KEY unique_facility_client (facility_id, client_user_id),
+  CONSTRAINT fk_fc_facility FOREIGN KEY (facility_id) REFERENCES facilities(id)
+    ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT fk_fc_client FOREIGN KEY (client_user_id) REFERENCES users(id)
+    ON DELETE CASCADE ON UPDATE CASCADE,
+  INDEX idx_fc_facility (facility_id),
+  INDEX idx_fc_client (client_user_id)
+) ENGINE=InnoDB;
+
 -- スタッフと施設の割当（多対多）
 CREATE TABLE IF NOT EXISTS staff_facilities (
   staff_user_id INT NOT NULL,

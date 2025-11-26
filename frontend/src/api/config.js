@@ -1,8 +1,8 @@
 // ===== frontend/src/api/config.js =====
 // API設定ファイル
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
-const BACKEND_BASE_URL = API_BASE_URL.replace('/api', ''); // http://localhost:8000
+const API_BASE_URL = process.env.REACT_APP_API_URL || '/api';
+const BACKEND_BASE_URL = API_BASE_URL === '/api' ? window.location.origin : API_BASE_URL.replace('/api', '');
 
 // APIクライアント設定
 class ApiClient {
