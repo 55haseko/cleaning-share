@@ -556,8 +556,10 @@ const ClientDashboard = ({ user, onLogout }) => {
             {selectedAlbum.photos && selectedAlbum.photos.length > 0 ? (
               <div className="space-y-6">
                 <div>
-                  <h3 className="font-medium text-gray-900 mb-3">清掃前</h3>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className="inline-block bg-green-100 text-green-800 px-4 py-2 rounded-full font-medium mb-4">
+                    🔍 清掃前
+                  </div>
+                  <div className="grid grid-cols-3 md:grid-cols-4 gap-3">
                     {selectedAlbum.photos.filter(p => p.type === 'before').map(photo => (
                       <div key={photo.id} className="relative group">
                         <img
@@ -577,8 +579,10 @@ const ClientDashboard = ({ user, onLogout }) => {
                 </div>
 
                 <div>
-                  <h3 className="font-medium text-gray-900 mb-3">清掃後</h3>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className="inline-block bg-blue-100 text-blue-800 px-4 py-2 rounded-full font-medium mb-4">
+                    ✅ 清掃後
+                  </div>
+                  <div className="grid grid-cols-3 md:grid-cols-4 gap-3">
                     {selectedAlbum.photos.filter(p => p.type === 'after').map(photo => (
                       <div key={photo.id} className="relative group">
                         <img
