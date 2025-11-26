@@ -738,7 +738,26 @@ app.get('/api/facilities', authenticateToken, async (req, res) => {
     }
 
     const [facilities] = await pool.execute(query, params);
-    res.json(facilities);
+
+    // 各施設のクライアント情報を追加（複数クライアント対応）
+    const facilitiesWithClients = await Promise.all(
+      facilities.map(async (facility) => {
+        const [clients] = await pool.execute(
+          `SELECT u.id, u.email, u.name
+           FROM facility_clients fc
+           INNER JOIN users u ON fc.client_user_id = u.id
+           WHERE fc.facility_id = ? AND fc.removed_at IS NULL
+           ORDER BY u.name`,
+          [facility.id]
+        );
+        return {
+          ...facility,
+          clients: clients || []
+        };
+      })
+    );
+
+    res.json(facilitiesWithClients);
   } catch (error) {
     logger.error('施設取得エラー:', error);
     res.status(500).json({ error: 'サーバーエラーが発生しました' });

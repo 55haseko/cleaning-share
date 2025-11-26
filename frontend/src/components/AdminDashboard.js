@@ -685,6 +685,8 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
             <div style={styles.facilityGrid}>
               {filteredFacilities.map(facility => {
                 const assignedClient = users.find(u => u.id === facility.client_user_id);
+                // 複数クライアント対応: facility.clients から割当クライアント一覧を取得
+                const facilityClients = facility.clients || [];
                 return (
                   <div key={facility.id} style={styles.facilityCard}>
                     <div style={styles.facilityHeader}>
@@ -697,7 +699,27 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
                     <div style={styles.facilityInfo}>
                       <p>
                         <strong>担当クライアント:</strong>{' '}
-                        {assignedClient ? `${assignedClient.name}` : '未割り当て'}
+                        {facilityClients.length > 0 ? (
+                          <div style={{ marginTop: '4px' }}>
+                            {facilityClients.map((client, idx) => (
+                              <span key={client.id} style={{
+                                display: 'inline-block',
+                                marginRight: '6px',
+                                marginBottom: '4px',
+                                padding: '2px 8px',
+                                backgroundColor: '#e3f2fd',
+                                borderRadius: '4px',
+                                fontSize: '0.875rem'
+                              }}>
+                                {client.name}
+                              </span>
+                            ))}
+                          </div>
+                        ) : assignedClient ? (
+                          `${assignedClient.name}`
+                        ) : (
+                          '未割り当て'
+                        )}
                       </p>
                     </div>
                     <div style={styles.facilityActions}>
