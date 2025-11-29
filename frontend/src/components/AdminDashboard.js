@@ -9,6 +9,7 @@ import { albumsApi } from '../api/albums.js';
 import { photosApi } from '../api/photos.js';
 import { receiptsApi } from '../api/receipts.js';
 import FacilityClientsManager from './FacilityClientsManager.js';
+import ClientMultiSelect from './ClientMultiSelect.js';
 import ScrollButtons from './ScrollButtons.js';
 
 const AdminDashboard = ({ currentUser, onLogout }) => {
@@ -207,17 +208,22 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
       id: null,
       name: '',
       address: '',
-      client_user_id: null
+      client_user_id: null,
+      clientUserIds: []
     });
     setShowFacilityForm(true);
   };
 
   const handleEditFacility = (facility) => {
+    // facility.clients から IDのみを抽出
+    const clientIds = (facility.clients || []).map(c => c.id);
+
     setFacilityForm({
       id: facility.id,
       name: facility.name,
       address: facility.address || '',
-      client_user_id: facility.client_user_id || null
+      client_user_id: facility.client_user_id || null,
+      clientUserIds: clientIds.length > 0 ? clientIds : []
     });
     setShowFacilityForm(true);
   };
@@ -225,23 +231,34 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
   const handleSaveFacility = async (e) => {
     e.preventDefault();
     try {
+      // バリデーション: 最低1人のクライアント選択が必要
+      if (!facilityForm.clientUserIds || facilityForm.clientUserIds.length === 0) {
+        setError('最低1人以上のクライアントを選択してください');
+        return;
+      }
+
       if (facilityForm.id) {
+        // 施設編集時
         await facilitiesApi.update(facilityForm.id, {
           name: facilityForm.name,
           address: facilityForm.address,
           client_user_id: facilityForm.client_user_id
         });
+        // 複数クライアント管理は FacilityClientsManager で行う
         alert('施設を更新しました');
       } else {
+        // 施設作成時（複数クライアント対応）
         await facilitiesApi.create({
           name: facilityForm.name,
           address: facilityForm.address,
-          client_user_id: facilityForm.client_user_id
+          client_user_id: facilityForm.client_user_id,
+          clientUserIds: facilityForm.clientUserIds
         });
         alert('施設を作成しました');
       }
       setShowFacilityForm(false);
       await loadData();
+      setError('');
     } catch (error) {
       setError('施設の保存に失敗しました: ' + error.message);
     }
@@ -644,22 +661,18 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
                     />
                   </div>
                   <div style={styles.formGroup}>
-                    <label>担当クライアント</label>
-                    <select
-                      value={facilityForm.client_user_id || ''}
-                      onChange={(e) => setFacilityForm({
+                    <ClientMultiSelect
+                      clients={clientUsers}
+                      selectedIds={facilityForm.clientUserIds || []}
+                      onChange={(selectedIds) => setFacilityForm({
                         ...facilityForm,
-                        client_user_id: e.target.value ? parseInt(e.target.value) : null
+                        clientUserIds: selectedIds,
+                        // 後方互換性のため、最初のIDを client_user_id に設定
+                        client_user_id: selectedIds.length > 0 ? selectedIds[0] : null
                       })}
-                      style={styles.select}
-                    >
-                      <option value="">未割り当て</option>
-                      {clientUsers.map(client => (
-                        <option key={client.id} value={client.id}>
-                          {client.name} ({client.email})
-                        </option>
-                      ))}
-                    </select>
+                      label="担当クライアント"
+                      isRequired={true}
+                    />
                   </div>
                 </div>
                 <div style={styles.formActions}>
@@ -671,16 +684,19 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
                   </button>
                 </div>
 
+                {/* 編集後に追加クライアント管理が必要な場合は FacilityClientsManager を使用 */}
+                {/* 現在はマルチセレクトコンポーネントで一度に管理可能 */}
+                {/*
                 {facilityForm.id && (
                   <FacilityClientsManager
                     facilityId={facilityForm.id}
                     clientUsers={clientUsers}
                     onUpdate={() => {
-                      // クライアント管理が更新されたら施設リストを再読み込み
                       loadData();
                     }}
                   />
                 )}
+                */}
               </form>
             )}
 
@@ -1802,7 +1818,8 @@ const styles = {
   formGroup: {
     display: 'flex',
     flexDirection: 'column',
-    gap: '8px'
+    gap: '8px',
+    position: 'relative'
   },
   input: {
     padding: '12px',
