@@ -9,6 +9,7 @@ import { albumsApi } from '../api/albums.js';
 import { photosApi } from '../api/photos.js';
 import { receiptsApi } from '../api/receipts.js';
 import FacilityClientsManager from './FacilityClientsManager.js';
+import ScrollButtons from './ScrollButtons.js';
 
 const AdminDashboard = ({ currentUser, onLogout }) => {
   const [activeTab, setActiveTab] = useState('overview'); // overview, facilities, users, albums, reports
@@ -1530,6 +1531,9 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
           </div>
         )}
       </div>
+
+      {/* スクロールボタン */}
+      <ScrollButtons />
     </div>
   );
 };

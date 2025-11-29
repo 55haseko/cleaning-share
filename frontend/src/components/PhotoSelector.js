@@ -231,7 +231,15 @@ const PhotoSelector = ({
         /* 写真グリッド */
         <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3">
           {photos.map(photo => (
-            <div key={photo.id} className="relative group aspect-square">
+            <div
+              key={photo.id}
+              className="relative group aspect-square cursor-pointer"
+              onClick={() => {
+                if (isSelectionMode) {
+                  togglePhotoSelection(photo.id);
+                }
+              }}
+            >
               {/* 写真（遅延ローディング対応） */}
               <LazyImage
                 src={photo.url}
@@ -241,30 +249,24 @@ const PhotoSelector = ({
 
               {/* オーバーレイ */}
               <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all rounded-lg">
-                {/* 選択モード時の選択チェック */}
-                {isSelectionMode && (
-                  <button
-                    onClick={() => togglePhotoSelection(photo.id)}
-                    className="absolute top-2 right-2 w-6 h-6 rounded-full border-2 border-white bg-black bg-opacity-50 flex items-center justify-center"
-                  >
-                    {selectedPhotos.has(photo.id) ? (
-                      <Check className="w-4 h-4 text-white" />
-                    ) : null}
-                  </button>
-                )}
-
                 {/* 通常モード時のアクションボタン */}
                 {!isSelectionMode && (
                   <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
                     <div className="flex gap-1">
                       <button
-                        onClick={() => setPreviewPhoto(photo)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setPreviewPhoto(photo);
+                        }}
                         className="w-8 h-8 bg-black bg-opacity-50 rounded-full flex items-center justify-center hover:bg-opacity-70"
                       >
                         <Eye className="w-4 h-4 text-white" />
                       </button>
                       <button
-                        onClick={() => deletePhoto(photo.id)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deletePhoto(photo.id);
+                        }}
                         className="w-8 h-8 bg-red-500 bg-opacity-80 rounded-full flex items-center justify-center hover:bg-opacity-100"
                       >
                         <X className="w-4 h-4 text-white" />
@@ -274,11 +276,17 @@ const PhotoSelector = ({
                 )}
               </div>
 
-              {/* 選択済みマーク */}
-              {isSelectionMode && selectedPhotos.has(photo.id) && (
-                <div className="absolute inset-0 bg-blue-600 bg-opacity-30 rounded-lg">
-                  <div className="absolute top-2 right-2 w-6 h-6 bg-blue-600 rounded-full flex items-center justify-center">
-                    <Check className="w-4 h-4 text-white" />
+              {/* 選択モード時のオーバーレイ */}
+              {isSelectionMode && (
+                <div className={`absolute inset-0 rounded-lg transition-all ${
+                  selectedPhotos.has(photo.id)
+                    ? 'bg-blue-600 bg-opacity-40'
+                    : 'bg-black bg-opacity-0 group-hover:bg-opacity-20'
+                }`}>
+                  <div className="absolute top-2 right-2 w-6 h-6 rounded-full border-2 border-white bg-black bg-opacity-70 flex items-center justify-center">
+                    {selectedPhotos.has(photo.id) && (
+                      <Check className="w-4 h-4 text-white" />
+                    )}
                   </div>
                 </div>
               )}

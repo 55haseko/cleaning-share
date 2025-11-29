@@ -8,6 +8,7 @@ import AdminDashboard from './components/AdminDashboard.js';
 import StaffDashboardNew from './components/StaffDashboardNew.js';
 import FacilitySelector from './components/FacilitySelector.js';
 import ImageModal from './components/ImageModal.js';
+import ScrollButtons from './components/ScrollButtons.js';
 
 // ログイン画面
 const LoginScreen = ({ onLogin }) => {
@@ -622,6 +623,9 @@ const ClientDashboard = ({ user, onLogout }) => {
           hasNext={selectedAlbum && selectedAlbum.photos && currentPhotoIndex < selectedAlbum.photos.length - 1}
         />
       )}
+
+      {/* スクロールボタン */}
+      <ScrollButtons />
     </div>
   );
 };

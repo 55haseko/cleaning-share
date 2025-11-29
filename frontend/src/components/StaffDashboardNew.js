@@ -15,6 +15,7 @@ import PhotoSelector from './PhotoSelector.js';
 import { batchUploadPhotos, retryFailedBatches } from '../utils/batchUpload.js';
 import UploadProgress from './UploadProgress.js';
 import PDFPreview from './PDFPreview.js';
+import ScrollButtons from './ScrollButtons.js';
 
 const StaffDashboardNew = ({ user, onLogout }) => {
   // 施設選択画面の状態
@@ -760,6 +761,9 @@ const StaffDashboardNew = ({ user, onLogout }) => {
           </div>
         )}
       </main>
+
+      {/* スクロールボタン */}
+      <ScrollButtons />
     </div>
   );
 };
