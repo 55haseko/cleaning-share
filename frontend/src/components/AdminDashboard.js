@@ -70,6 +70,7 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
   const [receipts, setReceipts] = useState([]);
   const [photosPerPage] = useState(50); // 1ページあたりの写真数
   const [currentPhotoPage, setCurrentPhotoPage] = useState(1); // 現在のページ
+  const [previewPhotoUrl, setPreviewPhotoUrl] = useState(null); // プレビュー画像のURL
 
   useEffect(() => {
     loadData();
@@ -1421,7 +1422,7 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
                         <img
                           src={fullUrl}
                           alt=""
-                          onClick={() => window.open(fullUrl.replace('/thumbnails/', '/'), '_blank')}
+                          onClick={() => setPreviewPhotoUrl(fullUrl.replace('/thumbnails/', '/'))}
                           style={{
                             position: 'absolute',
                             top: 0,
@@ -1531,6 +1532,57 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
           </div>
         )}
       </div>
+
+      {/* 画像プレビューモーダル */}
+      {previewPhotoUrl && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.9)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 50,
+          padding: '20px'
+        }}>
+          <div style={{
+            position: 'relative',
+            maxWidth: '90vw',
+            maxHeight: '90vh'
+          }}>
+            <img
+              src={previewPhotoUrl}
+              alt="プレビュー"
+              style={{
+                maxWidth: '100%',
+                maxHeight: '100%',
+                objectFit: 'contain'
+              }}
+            />
+            <button
+              onClick={() => setPreviewPhotoUrl(null)}
+              style={{
+                position: 'absolute',
+                top: '20px',
+                right: '20px',
+                backgroundColor: 'rgba(0, 0, 0, 0.7)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '50%',
+                width: '40px',
+                height: '40px',
+                fontSize: '24px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* スクロールボタン */}
       <ScrollButtons />
