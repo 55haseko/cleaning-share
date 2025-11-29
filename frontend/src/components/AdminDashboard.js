@@ -1599,11 +1599,12 @@ const styles = {
   },
   header: {
     backgroundColor: '#fff',
-    padding: '20px 40px',
+    padding: window.innerWidth < 768 ? '16px 12px' : '20px 40px',
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+    boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+    flexWrap: window.innerWidth < 768 ? 'wrap' : 'nowrap'
   },
   headerLeft: {
     display: 'flex',
@@ -1648,47 +1649,54 @@ const styles = {
   },
   tabMenu: {
     backgroundColor: '#fff',
-    padding: '0 40px',
+    padding: `0 ${window.innerWidth < 768 ? '12px' : '40px'}`,
     display: 'flex',
     gap: '0',
-    borderBottom: '2px solid #e0e0e0'
+    borderBottom: '2px solid #e0e0e0',
+    overflowX: window.innerWidth < 768 ? 'auto' : 'visible'
   },
   tab: {
-    padding: '16px 32px',
+    padding: window.innerWidth < 768 ? '12px 12px' : '16px 32px',
     backgroundColor: 'transparent',
     border: 'none',
     borderBottom: '3px solid transparent',
     cursor: 'pointer',
-    fontSize: '15px',
+    fontSize: window.innerWidth < 768 ? '13px' : '15px',
     fontWeight: '500',
     color: '#666',
-    transition: 'all 0.2s'
+    transition: 'all 0.2s',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis'
   },
   tabActive: {
-    padding: '16px 32px',
+    padding: window.innerWidth < 768 ? '12px 12px' : '16px 32px',
     backgroundColor: 'transparent',
     border: 'none',
     borderBottom: '3px solid #9333ea',
     cursor: 'pointer',
-    fontSize: '15px',
+    fontSize: window.innerWidth < 768 ? '13px' : '15px',
     fontWeight: '600',
-    color: '#9333ea'
+    color: '#9333ea',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis'
   },
   content: {
-    padding: '40px',
+    padding: window.innerWidth < 768 ? '20px' : '40px',
     maxWidth: '1400px',
     margin: '0 auto'
   },
   sectionTitle: {
-    fontSize: '20px',
+    fontSize: window.innerWidth < 768 ? '18px' : '20px',
     fontWeight: '600',
     color: '#333',
-    marginBottom: '20px'
+    marginBottom: window.innerWidth < 768 ? '16px' : '20px'
   },
   statsGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
-    gap: '24px',
+    gridTemplateColumns: window.innerWidth < 768 ? '1fr' : 'repeat(auto-fit, minmax(250px, 1fr))',
+    gap: window.innerWidth < 768 ? '12px' : '24px',
     marginBottom: '40px'
   },
   statCard: {
@@ -1936,7 +1944,7 @@ const styles = {
   userList: {
     backgroundColor: '#fff',
     borderRadius: '12px',
-    padding: '20px',
+    padding: window.innerWidth < 768 ? '12px' : '20px',
     boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
     overflowX: 'auto'
   },
@@ -1968,34 +1976,37 @@ const styles = {
     flexWrap: 'wrap'
   },
   actionBtn: {
-    padding: '6px 12px',
+    padding: window.innerWidth < 768 ? '5px 10px' : '6px 12px',
     backgroundColor: '#ffc107',
     color: '#212529',
     border: 'none',
     borderRadius: '4px',
     cursor: 'pointer',
-    fontSize: '12px',
-    fontWeight: '600'
+    fontSize: window.innerWidth < 768 ? '11px' : '12px',
+    fontWeight: '600',
+    whiteSpace: 'nowrap'
   },
   actionBtnEdit: {
-    padding: '6px 12px',
+    padding: window.innerWidth < 768 ? '5px 10px' : '6px 12px',
     backgroundColor: '#007bff',
     color: 'white',
     border: 'none',
     borderRadius: '4px',
     cursor: 'pointer',
-    fontSize: '12px',
-    fontWeight: '600'
+    fontSize: window.innerWidth < 768 ? '11px' : '12px',
+    fontWeight: '600',
+    whiteSpace: 'nowrap'
   },
   actionBtnDanger: {
-    padding: '6px 12px',
+    padding: window.innerWidth < 768 ? '5px 10px' : '6px 12px',
     backgroundColor: '#dc3545',
     color: 'white',
     border: 'none',
     borderRadius: '4px',
     cursor: 'pointer',
-    fontSize: '12px',
-    fontWeight: '600'
+    fontSize: window.innerWidth < 768 ? '11px' : '12px',
+    fontWeight: '600',
+    whiteSpace: 'nowrap'
   },
   loading: {
     textAlign: 'center',
@@ -2006,10 +2017,10 @@ const styles = {
   error: {
     backgroundColor: '#ffebee',
     color: '#c62828',
-    padding: '16px 24px',
+    padding: window.innerWidth < 768 ? '12px 16px' : '16px 24px',
     borderRadius: '8px',
-    margin: '0 40px 24px',
-    fontSize: '14px'
+    margin: `0 ${window.innerWidth < 768 ? '20px' : '40px'} 24px`,
+    fontSize: window.innerWidth < 768 ? '13px' : '14px'
   },
   emptyState: {
     textAlign: 'center',
@@ -2021,12 +2032,12 @@ const styles = {
   },
   filterBar: {
     backgroundColor: '#fff',
-    padding: '20px',
+    padding: window.innerWidth < 768 ? '12px' : '20px',
     borderRadius: '12px',
     marginBottom: '24px',
     boxShadow: '0 2px 8px rgba(0,0,0,0.08)',
     display: 'flex',
-    gap: '16px',
+    gap: window.innerWidth < 768 ? '12px' : '16px',
     alignItems: 'center',
     flexWrap: 'wrap'
   },
@@ -2115,26 +2126,41 @@ const styles = {
   }
 };
 
-// テーブルのスタイル（CSSが必要）
+// テーブルのスタイル（レスポンシブ対応）
 const tableStyles = `
   table th, table td {
-    padding: 14px 16px;
+    padding: ${window.innerWidth < 768 ? '10px 8px' : '14px 16px'};
     text-align: left;
     border-bottom: 1px solid #f0f0f0;
+    font-size: ${window.innerWidth < 768 ? '12px' : '14px'};
   }
   table th {
     background-color: #f8f9fa;
     font-weight: 600;
-    font-size: 13px;
+    font-size: ${window.innerWidth < 768 ? '11px' : '13px'};
     color: #666;
     text-transform: uppercase;
     letter-spacing: 0.5px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   table tr:hover {
     background-color: #f9f9f9;
   }
   table tbody tr:last-child td {
     border-bottom: none;
+  }
+  @media (max-width: 767px) {
+    table {
+      font-size: 12px;
+    }
+    table th, table td {
+      padding: 8px 6px;
+    }
+    table th {
+      font-size: 10px;
+    }
   }
 `;
 
