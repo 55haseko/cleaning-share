@@ -25,21 +25,19 @@ export const facilitiesApi = {
   },
 
   // ===== 複数クライアント対応API =====
+  // NOTE: 個別のクライアント追加/削除は廃止。
+  // 編集時に clientUserIds 配列を PUT で一括更新
 
-  // 施設に割り当てられたクライアント一覧を取得
+  // 施設に割り当てられたクライアント一覧を取得（オプション、確認用）
   async getClients(facilityId) {
     return await apiClient.get(`/facilities/${facilityId}/clients`);
   },
 
-  // クライアントを施設に割り当てる
-  async addClient(facilityId, clientUserId) {
-    return await apiClient.post(`/facilities/${facilityId}/clients`, {
-      clientUserId
-    });
-  },
-
-  // クライアントを施設から削除
-  async removeClient(facilityId, clientUserId) {
-    return await apiClient.delete(`/facilities/${facilityId}/clients/${clientUserId}`);
-  }
+  // 以下の API は廃止（フロームでは使用しない）
+  // async addClient(facilityId, clientUserId) {
+  //   return await apiClient.post(`/facilities/${facilityId}/clients`, { clientUserId });
+  // }
+  // async removeClient(facilityId, clientUserId) {
+  //   return await apiClient.delete(`/facilities/${facilityId}/clients/${clientUserId}`);
+  // }
 };

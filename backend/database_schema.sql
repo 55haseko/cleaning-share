@@ -14,14 +14,17 @@ CREATE TABLE IF NOT EXISTS users (
 ) ENGINE=InnoDB;
 
 -- 施設
+-- NOTE: client_user_id は廃止予定（legacy field）。facility_clients テーブルのみを使用
 CREATE TABLE IF NOT EXISTS facilities (
   id INT PRIMARY KEY AUTO_INCREMENT,
   name VARCHAR(150) NOT NULL,
   address VARCHAR(255),
-  client_user_id INT,
+  client_user_id INT COMMENT 'DEPRECATED: Use facility_clients table instead',
+  is_deleted BOOLEAN DEFAULT FALSE COMMENT 'Soft-delete flag',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_fac_client FOREIGN KEY (client_user_id) REFERENCES users(id)
-    ON DELETE SET NULL ON UPDATE CASCADE
+    ON DELETE SET NULL ON UPDATE CASCADE,
+  INDEX idx_fac_deleted (is_deleted)
 ) ENGINE=InnoDB;
 
 -- クライアントと施設の割当（多対多）

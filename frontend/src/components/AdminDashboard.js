@@ -8,7 +8,6 @@ import { statsApi } from '../api/stats.js';
 import { albumsApi } from '../api/albums.js';
 import { photosApi } from '../api/photos.js';
 import { receiptsApi } from '../api/receipts.js';
-import FacilityClientsManager from './FacilityClientsManager.js';
 import ClientMultiSelect from './ClientMultiSelect.js';
 import ScrollButtons from './ScrollButtons.js';
 
@@ -42,12 +41,11 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
     facilityIds: []
   });
 
-  // 施設フォームの状態
+  // 施設フォームの状態（統一フォーム）
   const [facilityForm, setFacilityForm] = useState({
     id: null,
     name: '',
     address: '',
-    client_user_id: null,
     clientUserIds: [] // 複数クライアント対応
   });
 
@@ -222,7 +220,6 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
       id: facility.id,
       name: facility.name,
       address: facility.address || '',
-      client_user_id: facility.client_user_id || null,
       clientUserIds: clientIds.length > 0 ? clientIds : []
     });
     setShowFacilityForm(true);
@@ -231,6 +228,12 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
   const handleSaveFacility = async (e) => {
     e.preventDefault();
     try {
+      // バリデーション: 施設名は必須
+      if (!facilityForm.name || facilityForm.name.trim() === '') {
+        setError('施設名は必須です');
+        return;
+      }
+
       // バリデーション: 最低1人のクライアント選択が必要
       if (!facilityForm.clientUserIds || facilityForm.clientUserIds.length === 0) {
         setError('最低1人以上のクライアントを選択してください');
@@ -238,20 +241,18 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
       }
 
       if (facilityForm.id) {
-        // 施設編集時
+        // 施設編集時（クライアント一括更新対応）
         await facilitiesApi.update(facilityForm.id, {
           name: facilityForm.name,
           address: facilityForm.address,
-          client_user_id: facilityForm.client_user_id
+          clientUserIds: facilityForm.clientUserIds // 新API形式
         });
-        // 複数クライアント管理は FacilityClientsManager で行う
         alert('施設を更新しました');
       } else {
         // 施設作成時（複数クライアント対応）
         await facilitiesApi.create({
           name: facilityForm.name,
           address: facilityForm.address,
-          client_user_id: facilityForm.client_user_id,
           clientUserIds: facilityForm.clientUserIds
         });
         alert('施設を作成しました');
@@ -648,6 +649,7 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
                       required
                       style={styles.input}
                       placeholder="例: 清掃センター本社"
+                      autoFocus
                     />
                   </div>
                   <div style={styles.formGroup}>
@@ -666,11 +668,9 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
                       selectedIds={facilityForm.clientUserIds || []}
                       onChange={(selectedIds) => setFacilityForm({
                         ...facilityForm,
-                        clientUserIds: selectedIds,
-                        // 後方互換性のため、最初のIDを client_user_id に設定
-                        client_user_id: selectedIds.length > 0 ? selectedIds[0] : null
+                        clientUserIds: selectedIds
                       })}
-                      label="担当クライアント"
+                      label="担当クライアント*"
                       isRequired={true}
                     />
                   </div>
@@ -683,26 +683,11 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
                     キャンセル
                   </button>
                 </div>
-
-                {/* 編集後に追加クライアント管理が必要な場合は FacilityClientsManager を使用 */}
-                {/* 現在はマルチセレクトコンポーネントで一度に管理可能 */}
-                {/*
-                {facilityForm.id && (
-                  <FacilityClientsManager
-                    facilityId={facilityForm.id}
-                    clientUsers={clientUsers}
-                    onUpdate={() => {
-                      loadData();
-                    }}
-                  />
-                )}
-                */}
               </form>
             )}
 
             <div style={styles.facilityGrid}>
               {filteredFacilities.map(facility => {
-                const assignedClient = users.find(u => u.id === facility.client_user_id);
                 // 複数クライアント対応: facility.clients から割当クライアント一覧を取得
                 const facilityClients = facility.clients || [];
                 return (
@@ -719,24 +704,23 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
                         <strong>担当クライアント:</strong>{' '}
                         {facilityClients.length > 0 ? (
                           <div style={{ marginTop: '4px' }}>
-                            {facilityClients.map((client, idx) => (
+                            {facilityClients.map((client) => (
                               <span key={client.id} style={{
                                 display: 'inline-block',
                                 marginRight: '6px',
                                 marginBottom: '4px',
-                                padding: '2px 8px',
+                                padding: '4px 12px',
                                 backgroundColor: '#e3f2fd',
-                                borderRadius: '4px',
-                                fontSize: '0.875rem'
+                                borderRadius: '12px',
+                                fontSize: '0.875rem',
+                                color: '#1976d2'
                               }}>
                                 {client.name}
                               </span>
                             ))}
                           </div>
-                        ) : assignedClient ? (
-                          `${assignedClient.name}`
                         ) : (
-                          '未割り当て'
+                          <span style={{color: '#999'}}>未割り当て</span>
                         )}
                       </p>
                     </div>

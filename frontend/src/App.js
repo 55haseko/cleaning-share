@@ -6,7 +6,7 @@ import { albumsApi } from './api/albums.js';
 import { receiptsApi } from './api/receipts.js';
 import AdminDashboard from './components/AdminDashboard.js';
 import StaffDashboardNew from './components/StaffDashboardNew.js';
-import FacilitySelector from './components/FacilitySelector.js';
+import FacilitySelector from './components/FacilitySelector.js'; // Used by ClientDashboard
 import ImageModal from './components/ImageModal.js';
 import ScrollButtons from './components/ScrollButtons.js';
 

@@ -821,11 +821,11 @@ app.post('/api/facilities', authenticateToken, requireAdmin, async (req, res) =>
   }
 });
 
-// 施設更新（管理者のみ）
+// 施設更新（管理者のみ）- クライアント一括更新対応
 app.put('/api/facilities/:facilityId', authenticateToken, requireAdmin, async (req, res) => {
   try {
     const { facilityId } = req.params;
-    const { name, address, client_user_id } = req.body;
+    const { name, address, clientUserIds } = req.body;
 
     // バリデーション
     if (!name) {
@@ -842,17 +842,61 @@ app.put('/api/facilities/:facilityId', authenticateToken, requireAdmin, async (r
       return res.status(404).json({ error: '施設が見つかりません' });
     }
 
-    // 施設情報を更新
+    // クライアント更新の場合のバリデーション
+    if (clientUserIds !== undefined) {
+      if (!Array.isArray(clientUserIds) || clientUserIds.length === 0) {
+        return res.status(400).json({ error: '最低1人のクライアントを選択してください' });
+      }
+    }
+
+    // 施設の基本情報を更新
     await pool.execute(
-      'UPDATE facilities SET name = ?, address = ?, client_user_id = ? WHERE id = ?',
-      [name, address, client_user_id || null, facilityId]
+      'UPDATE facilities SET name = ?, address = ? WHERE id = ?',
+      [name, address || null, facilityId]
     );
+
+    // クライアント情報の更新が含まれている場合
+    if (clientUserIds !== undefined && Array.isArray(clientUserIds)) {
+      // 現在のクライアント割当を取得
+      const [currentClients] = await pool.execute(
+        'SELECT client_user_id FROM facility_clients WHERE facility_id = ? AND removed_at IS NULL',
+        [facilityId]
+      );
+      const currentClientIds = currentClients.map(c => c.client_user_id);
+
+      // 削除するクライアント（現在のリストにあるが、新しいリストにない）
+      for (const clientId of currentClientIds) {
+        if (!clientUserIds.includes(clientId)) {
+          await pool.execute(
+            'UPDATE facility_clients SET removed_at = NOW() WHERE facility_id = ? AND client_user_id = ?',
+            [facilityId, clientId]
+          );
+        }
+      }
+
+      // 追加するクライアント（新しいリストにあるが、現在のリストにない）
+      for (const clientId of clientUserIds) {
+        if (!currentClientIds.includes(clientId)) {
+          try {
+            await pool.execute(
+              'INSERT INTO facility_clients (facility_id, client_user_id) VALUES (?, ?)',
+              [facilityId, clientId]
+            );
+          } catch (error) {
+            // 既に存在する場合（removed_at がNULLでない可能性）
+            await pool.execute(
+              'UPDATE facility_clients SET removed_at = NULL WHERE facility_id = ? AND client_user_id = ?',
+              [facilityId, clientId]
+            );
+          }
+        }
+      }
+    }
 
     res.json({
       id: parseInt(facilityId),
       name,
       address,
-      client_user_id,
       message: '施設情報を更新しました'
     });
     logger.info(`施設更新: ID=${facilityId}, ${name}`);
