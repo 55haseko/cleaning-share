@@ -1422,7 +1422,12 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
                         <img
                           src={fullUrl}
                           alt=""
-                          onClick={() => setPreviewPhotoUrl(fullUrl.replace('/thumbnails/', '/'))}
+                          onClick={() => {
+                            // サムネイルパスからフルサイズ画像パスを生成
+                            // /uploads/photos/.../thumbnails/thumb_xxx.jpg → /uploads/photos/.../xxx.jpg
+                            const fullSizeUrl = fullUrl.replace('/thumbnails/thumb_', '/');
+                            setPreviewPhotoUrl(fullSizeUrl);
+                          }}
                           style={{
                             position: 'absolute',
                             top: 0,

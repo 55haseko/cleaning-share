@@ -69,17 +69,20 @@ app.use(cors({
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-// 静的ファイル配信（開発環境のみ）
-if (process.env.NODE_ENV !== 'production') {
-  app.use('/uploads', express.static(STORAGE_ROOT, {
-    maxAge: '7d',
-    setHeaders: (res, path) => {
-      if (path.endsWith('.pdf') || path.match(/\.(jpg|jpeg|png|webp)$/i)) {
-        res.setHeader('Cache-Control', 'public, max-age=604800'); // 7 days
-      }
+// 静的ファイル配信
+app.use('/uploads', express.static(STORAGE_ROOT, {
+  maxAge: '7d',
+  setHeaders: (res, filePath) => {
+    // 拡張子がない場合でもContent-Typeを設定
+    if (!path.extname(filePath)) {
+      // 拡張子がないファイルはJPEGとして扱う（写真アップロードで拡張子が保存されていないため）
+      res.setHeader('Content-Type', 'image/jpeg');
     }
-  }));
-}
+    if (filePath.endsWith('.pdf') || filePath.match(/\.(jpg|jpeg|png|webp)$/i)) {
+      res.setHeader('Cache-Control', 'public, max-age=604800'); // 7 days
+    }
+  }
+}));
 
 // レート制限（DDoS対策）
 const limiter = rateLimit({
@@ -163,7 +166,22 @@ const storage = multer.diskStorage({
     const targetDate = cleaningDate || new Date().toISOString().split('T')[0];
     const dateFormatted = targetDate.replace(/-/g, ''); // YYYYMMDD
     const uuid = require('crypto').randomUUID().substring(0, 8);
-    const ext = path.extname(file.originalname).toLowerCase();
+
+    // 拡張子を取得（originalname が blob の場合は mimetype から判定）
+    let ext = path.extname(file.originalname).toLowerCase();
+    if (!ext || ext === '') {
+      // mimetype から拡張子を判定
+      const mimeToExt = {
+        'image/jpeg': '.jpeg',
+        'image/jpg': '.jpg',
+        'image/png': '.png',
+        'image/gif': '.gif',
+        'image/webp': '.webp',
+        'image/heic': '.heic',
+        'image/heif': '.heif'
+      };
+      ext = mimeToExt[file.mimetype] || '.jpg'; // デフォルトは.jpg
+    }
 
     // 仕様通りのファイル命名: fac-{id}_{YYYYMMDD}_{type}_{uuid}.{ext}
     const filename = `fac-${facilityId}_${dateFormatted}_${type || 'before'}_${uuid}${ext}`;
@@ -1188,8 +1206,8 @@ app.post('/api/photos/upload', authenticateToken, (req, res, next) => {
       let finalFileName = file.filename;
       let fileSize = file.size;
 
-      // HEIC/HEIFをJPEGに変換
-      if (file.mimetype === 'image/heic' || file.mimetype === 'image/heif') {
+      // HEIC/HEIFをJPEGに変換（必須処理）
+      if (file.mimetype === 'image/heic' || file.mimetype === 'image/heif' || /\.(heic|heif)$/i.test(file.filename)) {
         try {
           logger.info(`HEIC→JPEG変換開始: ${file.originalname}`);
           // HEIC→JPEG変換
@@ -1197,7 +1215,7 @@ app.post('/api/photos/upload', authenticateToken, (req, res, next) => {
           const jpegPath = path.join(path.dirname(file.path), jpegFileName);
 
           await sharp(file.path)
-            .toFormat('jpeg')
+            .jpeg({ quality: 85 }) // JPEG品質を指定
             .toFile(jpegPath);
 
           // 元のHEICファイルを削除
@@ -1214,9 +1232,8 @@ app.post('/api/photos/upload', authenticateToken, (req, res, next) => {
           logger.info(`HEIC→JPEG変換完了: ${jpegFileName} (${fileSize}bytes)`);
         } catch (error) {
           logger.error(`HEIC→JPEG変換失敗: ${file.originalname}`, error);
-          // 変換失敗時は元のファイルを使用
-          finalFilePath = file.path;
-          finalFileName = file.filename;
+          // 変換失敗時はエラーを返す（HEICをそのまま保存しない）
+          throw new Error(`HEIC変換に失敗しました: ${error.message}`);
         }
       }
 
@@ -1241,14 +1258,16 @@ app.post('/api/photos/upload', authenticateToken, (req, res, next) => {
         }
       }
 
-      // 相対パスを先に生成
+      // 相対パスを先に生成（STORAGE_ROOT からの相対パス = photos/... 形式）
       const relativePath = path.relative(STORAGE_ROOT, finalFilePath);
       const relativeThumbPath = thumbnailPath ? path.relative(STORAGE_ROOT, thumbnailPath) : null;
 
-      // データベースに相対パスを記録（URLで使用しやすいように）
+      // データベースに相対パスを記録（photos/... 形式で保存）
+      // 静的ファイル配信が /uploads → STORAGE_ROOT にマウントされているため
+      // /uploads/photos/... でアクセス可能
       const [result] = await pool.execute(
         'INSERT INTO photos (cleaning_session_id, file_path, thumbnail_path, type, file_size, original_name) VALUES (?, ?, ?, ?, ?, ?)',
-        [actualSessionId, `uploads/${relativePath.replace(/\\/g, '/')}`, relativeThumbPath ? `uploads/${relativeThumbPath.replace(/\\/g, '/')}` : null, type, fileSize, file.originalname]
+        [actualSessionId, relativePath.replace(/\\/g, '/'), relativeThumbPath ? relativeThumbPath.replace(/\\/g, '/') : null, type, fileSize, file.originalname]
       );
 
       uploadedFiles.push({
@@ -1325,13 +1344,13 @@ app.get('/api/receipts/:facilityId', authenticateToken, async (req, res) => {
     const [receipts] = await pool.execute(query, params);
 
     // パスをURLに変換
-    // DBから取得したパスがすでに "uploads/receipts/..." 形式なので
-    // そのまま /uploads 以下に配置する URLとして返す
     const receiptsWithUrls = receipts.map(receipt => {
       const dbPath = receipt.file_path || '';
+      // uploads/ プレフィックスを削除（既存データ対応）
+      const cleanPath = dbPath.replace(/^uploads\//, '');
       return {
         ...receipt,
-        url: `/${dbPath}`
+        url: `/uploads/${cleanPath}`
       };
     });
 
@@ -1360,14 +1379,14 @@ app.post('/api/receipts/upload', authenticateToken, receiptUpload.array('receipt
 
     // 各ファイルを処理
     for (const file of req.files) {
+      // 相対パスを生成（STORAGE_ROOT からの相対パス = receipts/... 形式）
+      const relativePath = path.relative(STORAGE_ROOT, file.path);
+
       // データベースに記録（receiptsテーブルに保存）
       const [result] = await pool.execute(
         'INSERT INTO receipts (cleaning_session_id, facility_id, month, file_path, file_size, original_name, uploaded_by) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [actualSessionId, facilityId, month || new Date().toISOString().substring(0, 7), file.path, file.size, file.originalname, req.user.id]
+        [actualSessionId, facilityId, month || new Date().toISOString().substring(0, 7), relativePath.replace(/\\/g, '/'), file.size, file.originalname, req.user.id]
       );
-
-      // 相対パスを生成
-      const relativePath = path.relative(STORAGE_ROOT, file.path);
 
       uploadedFiles.push({
         id: result.insertId,
@@ -1659,17 +1678,21 @@ app.get('/api/albums-test/:facilityId', async (req, res) => {
         [session.id]
       );
 
-      // パスをURLに変換（正規化関数を使用）
+      // パスをURLに変換
       session.photos = photos.map(photo => {
-        // DBから取得したパスがすでに "uploads/photos/..." 形式なので
-        // そのまま /uploads 以下に配置する URLとして返す
+        // DBから取得したパスは "photos/..." または "uploads/photos/..." 形式
+        // 静的ファイル配信は /uploads → STORAGE_ROOT にマウント
         const dbPath = photo.file_path || '';
         const dbThumbPath = photo.thumbnail_path || '';
 
+        // uploads/ プレフィックスを削除（既存データ対応）
+        const cleanPath = dbPath.replace(/^uploads\//, '');
+        const cleanThumbPath = dbThumbPath ? dbThumbPath.replace(/^uploads\//, '') : null;
+
         return {
           ...photo,
-          url: `/${dbPath}`,
-          thumbnailUrl: dbThumbPath ? `/${dbThumbPath}` : null
+          url: `/uploads/${cleanPath}`,
+          thumbnailUrl: cleanThumbPath ? `/uploads/${cleanThumbPath}` : null
         };
       });
     }
@@ -1713,22 +1736,26 @@ app.get('/api/albums/:facilityId', authenticateToken, async (req, res) => {
         'SELECT id, type, file_path, thumbnail_path, uploaded_at FROM photos WHERE cleaning_session_id = ?',
         [session.id]
       );
-      
-      // パスをURLに変換（正規化関数を使用）
+
+      // パスをURLに変換
       session.photos = photos.map(photo => {
-        // DBから取得したパスがすでに "uploads/photos/..." 形式なので
-        // そのまま /uploads 以下に配置する URLとして返す
+        // DBから取得したパスは "photos/..." または "uploads/photos/..." 形式
+        // 静的ファイル配信は /uploads → STORAGE_ROOT にマウント
         const dbPath = photo.file_path || '';
         const dbThumbPath = photo.thumbnail_path || '';
 
+        // uploads/ プレフィックスを削除（既存データ対応）
+        const cleanPath = dbPath.replace(/^uploads\//, '');
+        const cleanThumbPath = dbThumbPath ? dbThumbPath.replace(/^uploads\//, '') : null;
+
         return {
           ...photo,
-          url: `/${dbPath}`,
-          thumbnailUrl: dbThumbPath ? `/${dbThumbPath}` : null
+          url: `/uploads/${cleanPath}`,
+          thumbnailUrl: cleanThumbPath ? `/uploads/${cleanThumbPath}` : null
         };
       });
     }
-    
+
     res.json(sessions);
   } catch (error) {
     logger.error('アルバム取得エラー:', error);

@@ -29,3 +29,6 @@ tmp/
 # Runtime
 .backend.pid
 .frontend.pid
+
+# Bug Fix Logs (internal documentation, do not commit)
+BUG_FIX_LOG.md

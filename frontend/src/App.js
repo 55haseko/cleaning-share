@@ -63,7 +63,7 @@ const LoginScreen = ({ onLogin }) => {
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">パスワード</label>
             <input
-              type="text"
+              type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               onKeyPress={(e) => e.key === 'Enter' && handleLogin()}
