@@ -4,18 +4,36 @@
 import imageCompression from 'browser-image-compression';
 
 /**
+ * ファイルがHEIC/HEIF形式かどうかを判定
+ * @param {File} file - ファイル
+ * @returns {boolean} HEIC/HEIFの場合true
+ */
+function isHEIC(file) {
+  return file.type === 'image/heic' ||
+         file.type === 'image/heif' ||
+         file.name.toLowerCase().endsWith('.heic') ||
+         file.name.toLowerCase().endsWith('.heif');
+}
+
+/**
  * 画像を圧縮する
  * @param {File} file - 元の画像ファイル
  * @param {Object} options - 圧縮オプション
  * @returns {Promise<File>} 圧縮後の画像ファイル
  */
 export async function compressImage(file, options = {}) {
+  // HEIC/HEIF形式はブラウザで処理できないため、バックエンドに任せる
+  if (isHEIC(file)) {
+    console.log(`[圧縮] スキップ: ${file.name} (HEIC/HEIF形式はサーバで処理します)`);
+    return file;
+  }
+
   // デフォルトの圧縮設定
   const defaultOptions = {
     maxSizeMB: 0.3,          // 最大300KB
     maxWidthOrHeight: 1600,  // 長辺1600px
     useWebWorker: true,      // Web Workerで並列処理（UIブロック防止）
-    fileType: 'image/jpeg',  // JPEG形式で統一（HEIC対応）
+    fileType: 'image/jpeg',  // JPEG形式で統一
     initialQuality: 0.8,     // 初期品質0.8
     alwaysKeepResolution: false  // 解像度を必要に応じて調整
   };

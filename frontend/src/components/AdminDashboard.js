@@ -1540,27 +1540,33 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
 
       {/* 画像プレビューモーダル */}
       {previewPhotoUrl && (
-        <div style={{
-          position: 'fixed',
-          inset: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.9)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 50,
-          padding: '20px'
-        }}>
+        <div
+          onClick={() => setPreviewPhotoUrl(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.9)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 50,
+            padding: '20px'
+          }}>
           <div style={{
             position: 'relative',
-            maxWidth: '90vw',
-            maxHeight: '90vh'
+            width: '100%',
+            height: '100%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center'
           }}>
             <img
               src={previewPhotoUrl}
               alt="プレビュー"
+              onClick={(e) => e.stopPropagation()}
               style={{
-                maxWidth: '100%',
-                maxHeight: '100%',
+                maxWidth: '90vw',
+                maxHeight: '90vh',
                 objectFit: 'contain'
               }}
             />

@@ -13,6 +13,7 @@ const cron = require('node-cron');
 const winston = require('winston');
 const rateLimit = require('express-rate-limit');
 const archiver = require('archiver');
+const convert = require('heic-convert');
 require('dotenv').config();
 
 // ===== 設定 =====
@@ -1209,13 +1210,42 @@ app.post('/api/photos/upload', authenticateToken, (req, res, next) => {
       // HEIC/HEIFをJPEGに変換（必須処理）
       if (file.mimetype === 'image/heic' || file.mimetype === 'image/heif' || /\.(heic|heif)$/i.test(file.filename)) {
         try {
-          logger.info(`HEIC→JPEG変換開始: ${file.originalname}`);
-          // HEIC→JPEG変換
+          logger.info(`HEIC→JPEG変換開始: ${file.originalname} (${file.size}bytes)`);
+
+          // HEIC→JPEG変換（リサイズ＋圧縮）
           const jpegFileName = file.filename.replace(/\.(heic|heif)$/i, '.jpeg');
           const jpegPath = path.join(path.dirname(file.path), jpegFileName);
 
-          await sharp(file.path)
-            .jpeg({ quality: 85 }) // JPEG品質を指定
+          // ファイルをバッファに読み込む
+          const heicBuffer = await fs.readFile(file.path);
+          logger.info(`HEIC ファイル読み込み完了: ${heicBuffer.length}bytes`);
+
+          // heic-convertを使ってHEIC→JPEG変換
+          logger.info(`heic-convert でJPEGに変換中...`);
+          const jpegBuffer = await convert({
+            buffer: heicBuffer,
+            format: 'JPEG',
+            quality: 1  // 最高品質で変換（後でSharpでリサイズ・圧縮）
+          });
+          logger.info(`HEIC→JPEG変換完了: ${jpegBuffer.length}bytes`);
+
+          // 変換されたJPEGをSharpで処理（リサイズ＋圧縮）
+          const metadata = await sharp(jpegBuffer).metadata();
+          logger.info(`JPEG メタデータ: ${metadata.width}x${metadata.height}`);
+
+          // 長辺を1600pxに制限（フロントエンドの圧縮設定と同じ）
+          let sharpInstance = sharp(jpegBuffer);
+          if (metadata.width > 1600 || metadata.height > 1600) {
+            sharpInstance = sharpInstance.resize(1600, 1600, {
+              fit: 'inside',  // アスペクト比を保持しながら収まるようにリサイズ
+              withoutEnlargement: true  // 元画像より大きくしない
+            });
+            logger.info(`JPEG画像をリサイズ: ${metadata.width}x${metadata.height} → 最大1600px`);
+          }
+
+          // JPEG形式で出力（圧縮）
+          await sharpInstance
+            .jpeg({ quality: 80 }) // JPEG品質を80に設定（フロントエンド圧縮と同等）
             .toFile(jpegPath);
 
           // 元のHEICファイルを削除
@@ -1229,10 +1259,19 @@ app.post('/api/photos/upload', authenticateToken, (req, res, next) => {
           const stats = await fs.stat(jpegPath);
           fileSize = stats.size;
 
-          logger.info(`HEIC→JPEG変換完了: ${jpegFileName} (${fileSize}bytes)`);
+          const originalSizeMB = (file.size / 1024 / 1024).toFixed(2);
+          const compressedSizeMB = (fileSize / 1024 / 1024).toFixed(2);
+          const reduction = (((file.size - fileSize) / file.size) * 100).toFixed(1);
+          logger.info(`HEIC→JPEG処理完了: ${jpegFileName} (${originalSizeMB}MB → ${compressedSizeMB}MB, ${reduction}%削減)`);
         } catch (error) {
           logger.error(`HEIC→JPEG変換失敗: ${file.originalname}`, error);
-          // 変換失敗時はエラーを返す（HEICをそのまま保存しない）
+          logger.error(`エラー詳細:`, error.stack);
+          // 変換失敗時は元のHEICファイルを削除
+          try {
+            await fs.unlink(file.path);
+          } catch (unlinkError) {
+            logger.error(`HEIC一時ファイル削除失敗:`, unlinkError);
+          }
           throw new Error(`HEIC変換に失敗しました: ${error.message}`);
         }
       }
@@ -1246,7 +1285,10 @@ app.post('/api/photos/upload', authenticateToken, (req, res, next) => {
 
           thumbnailPath = path.join(thumbDir, `thumb_${finalFileName}`);
           await sharp(finalFilePath)
-            .resize(300, 200, { fit: 'cover' })
+            .resize(400, 400, {
+              fit: 'inside',  // 画像全体を表示（切り取らない）
+              withoutEnlargement: true  // 元画像より大きくしない
+            })
             .jpeg({ quality: 80 })
             .toFile(thumbnailPath);
 

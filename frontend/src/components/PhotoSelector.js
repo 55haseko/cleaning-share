@@ -233,7 +233,7 @@ const PhotoSelector = ({
           {photos.map(photo => (
             <div
               key={photo.id}
-              className="relative group aspect-square cursor-pointer"
+              className="relative group aspect-square cursor-pointer bg-gray-100 rounded-lg overflow-hidden"
               onClick={() => {
                 if (isSelectionMode) {
                   togglePhotoSelection(photo.id);
@@ -297,12 +297,16 @@ const PhotoSelector = ({
 
       {/* 写真プレビューモーダル */}
       {previewPhoto && (
-        <div className="fixed inset-0 bg-black bg-opacity-90 z-50 flex items-center justify-center p-4">
-          <div className="relative max-w-4xl max-h-full">
+        <div
+          className="fixed inset-0 bg-black bg-opacity-90 z-50 flex items-center justify-center p-4"
+          onClick={() => setPreviewPhoto(null)}
+        >
+          <div className="relative w-full h-full flex items-center justify-center">
             <img
               src={previewPhoto.url}
               alt=""
               className="max-w-full max-h-full object-contain"
+              onClick={(e) => e.stopPropagation()}
             />
             <button
               onClick={() => setPreviewPhoto(null)}

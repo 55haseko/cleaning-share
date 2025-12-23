@@ -64,13 +64,13 @@ const ImageModal = ({ photo, onClose, onPrevious, onNext, hasPrevious, hasNext }
 
       {/* 画像コンテナ */}
       <div
-        className="max-w-6xl max-h-full flex flex-col items-center"
+        className="w-full h-full flex flex-col items-center justify-center"
         onClick={(e) => e.stopPropagation()}
       >
         <img
           src={photo.url}
           alt={photo.type === 'before' ? '清掃前' : '清掃後'}
-          className="max-w-full max-h-[80vh] object-contain rounded-lg"
+          className="max-w-[90vw] max-h-[80vh] object-contain rounded-lg"
         />
 
         {/* 画像情報 */}

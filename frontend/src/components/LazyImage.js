@@ -63,7 +63,7 @@ const LazyImage = ({
       <img
         src={loaded ? src : defaultPlaceholder}
         alt={alt}
-        className={`w-full h-full object-cover rounded-lg transition-opacity duration-300 ${
+        className={`w-full h-full object-contain rounded-lg transition-opacity duration-300 ${
           loaded ? 'opacity-100' : 'opacity-0'
         }`}
         loading="lazy"
