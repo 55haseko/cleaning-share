@@ -5,7 +5,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   Upload, Camera, LogOut, User, Building, Search,
   ArrowUp, ArrowDown, MapPin, X, Check, Eye, FileText,
-  Clock, AlertCircle, CheckCircle
+  Clock, AlertCircle, CheckCircle, Calendar, Trash2, Image
 } from 'lucide-react';
 import { facilitiesApi } from '../api/facilities.js';
 import { photosApi } from '../api/photos.js';
@@ -25,6 +25,13 @@ const StaffDashboardNew = ({ user, onLogout }) => {
   const [sortBy, setSortBy] = useState('name'); // name, recent
   const [sortOrder, setSortOrder] = useState('asc');
   const [loading, setLoading] = useState(true);
+
+  // 日付選択・アルバム閲覧の状態
+  const [viewMode, setViewMode] = useState('upload'); // 'upload' | 'view'
+  const [albums, setAlbums] = useState([]); // 過去のアルバム一覧
+  const [selectedAlbum, setSelectedAlbum] = useState(null); // 選択中のアルバム
+  const [loadingAlbums, setLoadingAlbums] = useState(false);
+  const [deletingPhotoId, setDeletingPhotoId] = useState(null);
 
   // 清掃記録登録画面の状態
   const [beforePhotos, setBeforePhotos] = useState([]);
@@ -73,6 +80,47 @@ const StaffDashboardNew = ({ user, onLogout }) => {
       setError('施設の読み込みに失敗しました: ' + err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // 施設のアルバム一覧を取得
+  const loadAlbums = async (facilityId) => {
+    try {
+      setLoadingAlbums(true);
+      const albumsData = await photosApi.getAlbums(facilityId);
+      setAlbums(albumsData);
+      setError('');
+    } catch (err) {
+      setError('アルバムの読み込みに失敗しました: ' + err.message);
+    } finally {
+      setLoadingAlbums(false);
+    }
+  };
+
+  // 写真を削除
+  const handleDeletePhoto = async (photoId) => {
+    if (!window.confirm('この写真を削除してもよろしいですか？')) {
+      return;
+    }
+
+    try {
+      setDeletingPhotoId(photoId);
+      await photosApi.delete(photoId);
+
+      // アルバムを再読み込みして表示を更新
+      if (selectedAlbum) {
+        await loadAlbums(selectedFacility.id);
+        // 選択中のアルバムを更新
+        const updatedAlbums = await photosApi.getAlbums(selectedFacility.id);
+        const updatedAlbum = updatedAlbums.find(a => a.id === selectedAlbum.id);
+        setSelectedAlbum(updatedAlbum || null);
+      }
+
+      setError('');
+    } catch (err) {
+      setError('写真の削除に失敗しました: ' + err.message);
+    } finally {
+      setDeletingPhotoId(null);
     }
   };
 
@@ -586,51 +634,91 @@ const StaffDashboardNew = ({ user, onLogout }) => {
                   </p>
                 </div>
                 <button
-                  onClick={() => setSelectedFacility(null)}
+                  onClick={() => {
+                    setSelectedFacility(null);
+                    setViewMode('upload');
+                    setSelectedAlbum(null);
+                    setAlbums([]);
+                  }}
                   className="text-blue-600 hover:text-blue-800 text-sm font-medium"
                 >
                   施設を変更
                 </button>
               </div>
 
-              {/* アップロード進捗 */}
-              {isUploading && (
-                <div className="mb-6">
-                  <UploadProgress
-                    progress={uploadProgress}
-                    status={uploadStatus}
-                    uploaded={uploadStats.uploaded}
-                    total={uploadStats.total}
-                    currentBatch={uploadStats.currentBatch}
-                    totalBatches={uploadStats.totalBatches}
-                    failed={uploadStats.failed}
-                    estimatedTime={{ elapsed: (Date.now() - uploadStats.startTime) / 1000 }}
-                    isUploading={isUploading}
-                  />
-                </div>
-              )}
+              {/* モード切り替えタブ */}
+              <div className="flex gap-2 mb-6 border-b border-gray-200">
+                <button
+                  onClick={() => {
+                    setViewMode('upload');
+                    setSelectedAlbum(null);
+                  }}
+                  className={`flex items-center gap-2 px-4 py-2 font-medium transition-colors border-b-2 ${
+                    viewMode === 'upload'
+                      ? 'border-blue-600 text-blue-600'
+                      : 'border-transparent text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  <Upload className="w-4 h-4" />
+                  新規アップロード
+                </button>
+                <button
+                  onClick={() => {
+                    setViewMode('view');
+                    loadAlbums(selectedFacility.id);
+                  }}
+                  className={`flex items-center gap-2 px-4 py-2 font-medium transition-colors border-b-2 ${
+                    viewMode === 'view'
+                      ? 'border-blue-600 text-blue-600'
+                      : 'border-transparent text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  <Calendar className="w-4 h-4" />
+                  過去のアルバム
+                </button>
+              </div>
 
-              {/* エラー時の再試行 */}
-              {!isUploading && uploadStats.failed > 0 && !uploadComplete && (
-                <div className="mb-6">
-                  <UploadProgress
-                    progress={uploadProgress}
-                    status={uploadStatus}
-                    uploaded={uploadStats.uploaded}
-                    total={uploadStats.total}
-                    currentBatch={uploadStats.currentBatch}
-                    totalBatches={uploadStats.totalBatches}
-                    failed={uploadStats.failed}
-                    onRetry={handleRetryUpload}
-                    isUploading={false}
-                  />
-                </div>
-              )}
-
-              {!isUploading && (
+              {/* アップロードモード */}
+              {viewMode === 'upload' && (
                 <>
-                  {/* 写真アップロード */}
-                  <div className="grid md:grid-cols-2 gap-6 mb-6">
+                  {/* アップロード進捗 */}
+                  {isUploading && (
+                    <div className="mb-6">
+                      <UploadProgress
+                        progress={uploadProgress}
+                        status={uploadStatus}
+                        uploaded={uploadStats.uploaded}
+                        total={uploadStats.total}
+                        currentBatch={uploadStats.currentBatch}
+                        totalBatches={uploadStats.totalBatches}
+                        failed={uploadStats.failed}
+                        estimatedTime={{ elapsed: (Date.now() - uploadStats.startTime) / 1000 }}
+                        isUploading={isUploading}
+                      />
+                    </div>
+                  )}
+
+                  {/* エラー時の再試行 */}
+                  {!isUploading && uploadStats.failed > 0 && !uploadComplete && (
+                    <div className="mb-6">
+                      <UploadProgress
+                        progress={uploadProgress}
+                        status={uploadStatus}
+                        uploaded={uploadStats.uploaded}
+                        total={uploadStats.total}
+                        currentBatch={uploadStats.currentBatch}
+                        totalBatches={uploadStats.totalBatches}
+                        failed={uploadStats.failed}
+                        onRetry={handleRetryUpload}
+                        isUploading={false}
+                      />
+                    </div>
+                  )}
+
+                  {!isUploading && (
+                    <>
+                      {/* 写真アップロード */}
+                      <div className="grid md:grid-cols-2 gap-6 mb-6">
                     <div>
                       <PhotoSelector
                         photos={beforePhotos}
@@ -747,14 +835,138 @@ const StaffDashboardNew = ({ user, onLogout }) => {
                     />
                   </div>
 
-                  {/* アップロードボタン */}
-                  <button
-                    onClick={handleUpload}
-                    disabled={beforePhotos.length === 0 && afterPhotos.length === 0 && receipts.length === 0}
-                    className="w-full bg-blue-600 text-white py-4 rounded-lg font-semibold hover:bg-blue-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
-                  >
-                    アップロード
-                  </button>
+                      {/* アップロードボタン */}
+                      <button
+                        onClick={handleUpload}
+                        disabled={beforePhotos.length === 0 && afterPhotos.length === 0 && receipts.length === 0}
+                        className="w-full bg-blue-600 text-white py-4 rounded-lg font-semibold hover:bg-blue-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
+                      >
+                        アップロード
+                      </button>
+                    </>
+                  )}
+                </>
+              )}
+
+              {/* アルバム閲覧モード */}
+              {viewMode === 'view' && (
+                <>
+                  {loadingAlbums ? (
+                    <div className="text-center py-12">
+                      <div className="inline-block w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                      <p className="mt-4 text-gray-600">読み込み中...</p>
+                    </div>
+                  ) : selectedAlbum ? (
+                    /* アルバム詳細表示 */
+                    <div>
+                      <div className="flex items-center justify-between mb-4">
+                        <div>
+                          <h3 className="text-lg font-bold text-gray-900">
+                            {new Date(selectedAlbum.cleaning_date).toLocaleDateString('ja-JP', {
+                              year: 'numeric',
+                              month: 'long',
+                              day: 'numeric'
+                            })}
+                          </h3>
+                          <p className="text-sm text-gray-600">
+                            {selectedAlbum.photos?.length || 0}枚の写真
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => setSelectedAlbum(null)}
+                          className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                        >
+                          ← 日付一覧に戻る
+                        </button>
+                      </div>
+
+                      {/* 写真グリッド */}
+                      {selectedAlbum.photos && selectedAlbum.photos.length > 0 ? (
+                        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                          {selectedAlbum.photos.map(photo => (
+                            <div key={photo.id} className="relative group">
+                              <div className="aspect-square bg-gray-100 rounded-lg overflow-hidden">
+                                <img
+                                  src={photo.thumbnailUrl || photo.url}
+                                  alt={photo.type === 'before' ? '清掃前' : '清掃後'}
+                                  className="w-full h-full object-cover"
+                                />
+                              </div>
+
+                              {/* 写真タイプバッジ */}
+                              <div className={`absolute top-2 left-2 px-2 py-1 rounded text-xs font-medium ${
+                                photo.type === 'before'
+                                  ? 'bg-orange-500 text-white'
+                                  : 'bg-green-500 text-white'
+                              }`}>
+                                {photo.type === 'before' ? '清掃前' : '清掃後'}
+                              </div>
+
+                              {/* 削除ボタン */}
+                              <button
+                                onClick={() => handleDeletePhoto(photo.id)}
+                                disabled={deletingPhotoId === photo.id}
+                                className="absolute top-2 right-2 bg-red-600 text-white rounded-full p-2 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-700 disabled:opacity-50"
+                                title="写真を削除"
+                              >
+                                {deletingPhotoId === photo.id ? (
+                                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                ) : (
+                                  <Trash2 className="w-4 h-4" />
+                                )}
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-center py-12">
+                          <Image className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+                          <p className="text-gray-600">写真がありません</p>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    /* 日付一覧表示 */
+                    <div>
+                      <h3 className="text-lg font-bold text-gray-900 mb-4">日付を選択</h3>
+                      {albums.length > 0 ? (
+                        <div className="space-y-2">
+                          {albums.map(album => (
+                            <button
+                              key={album.id}
+                              onClick={() => setSelectedAlbum(album)}
+                              className="w-full p-4 border border-gray-200 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-all text-left group"
+                            >
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <p className="font-semibold text-gray-900">
+                                    {new Date(album.cleaning_date).toLocaleDateString('ja-JP', {
+                                      year: 'numeric',
+                                      month: 'long',
+                                      day: 'numeric',
+                                      weekday: 'short'
+                                    })}
+                                  </p>
+                                  <p className="text-sm text-gray-600 mt-1">
+                                    {album.photo_count || 0}枚の写真
+                                  </p>
+                                </div>
+                                <div className="text-blue-600 group-hover:text-blue-800">
+                                  →
+                                </div>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-center py-12">
+                          <Calendar className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+                          <p className="text-gray-600">アルバムがまだありません</p>
+                          <p className="text-sm text-gray-500 mt-2">新規アップロードから写真を追加してください</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </>
               )}
             </div>

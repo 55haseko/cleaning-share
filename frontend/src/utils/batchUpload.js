@@ -50,10 +50,10 @@ export async function batchUploadPhotos(facilityId, photos, type, options = {}) 
   const errors = [];
 
   // 最初のバッチはシリアルに実行してsessionIdを確定（重要！）
-  if (batches.length > 0 && !sessionId) {
+  if (batches.length > 0) {
     const firstBatch = batches[0];
     let retries = 0;
-    let sessionIdAcquired = false;
+    let sessionIdAcquired = !!sessionId;  // 既にsessionIdがある場合はtrue
 
     while (retries < MAX_RETRIES && !sessionIdAcquired) {
       try {
@@ -119,6 +119,51 @@ export async function batchUploadPhotos(facilityId, photos, type, options = {}) 
         const delay = RETRY_DELAY_BASE * Math.pow(2, retries - 1);
         console.log(`[バッチ${firstBatch.index + 1}/${batches.length}] ${delay}ms後にリトライします...`);
         await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+
+    // sessionIdが既にある場合は、最初のバッチをすぐにアップロード
+    if (sessionId && !results.length) {
+      try {
+        console.log(`[バッチ${firstBatch.index + 1}/${batches.length}] アップロード開始（既存sessionId: ${sessionId}）: ${firstBatch.photos.length}枚`);
+
+        const result = await photosApi.upload(
+          facilityId,
+          firstBatch.photos,
+          type,
+          { date, sessionId }
+        );
+
+        console.log(`[バッチ${firstBatch.index + 1}/${batches.length}] 完了: ${result.files?.length || 0}枚`);
+
+        // バッチ完了コールバック
+        if (onBatchComplete) {
+          onBatchComplete(firstBatch.index, result);
+        }
+
+        // 進捗更新
+        uploadedCount += firstBatch.photos.length;
+        if (onProgress) {
+          onProgress(uploadedCount, photos.length, 1, batches.length);
+        }
+
+        results.push({
+          batchIndex: firstBatch.index,
+          success: true,
+          result
+        });
+      } catch (error) {
+        console.error(`[バッチ${firstBatch.index + 1}/${batches.length}] エラー:`, error);
+
+        if (onError) {
+          onError(firstBatch.index, error);
+        }
+
+        errors.push({
+          batchIndex: firstBatch.index,
+          photos: firstBatch.photos,
+          error
+        });
       }
     }
   }

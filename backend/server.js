@@ -1492,14 +1492,17 @@ app.post('/api/monthly-checks/save', authenticateToken, async (req, res) => {
   }
 });
 
-// 写真削除エンドポイント（管理者のみ）
-app.delete('/api/photos/:photoId', authenticateToken, requireAdmin, async (req, res) => {
+// 写真削除エンドポイント（施設アクセス権でチェック）
+app.delete('/api/photos/:photoId', authenticateToken, async (req, res) => {
   try {
     const { photoId } = req.params;
 
-    // 写真情報を取得
+    // 写真情報を取得（セッション情報含む）
     const [photos] = await pool.execute(
-      'SELECT file_path, thumbnail_path FROM photos WHERE id = ?',
+      `SELECT p.*, cs.facility_id
+       FROM photos p
+       INNER JOIN cleaning_sessions cs ON p.cleaning_session_id = cs.id
+       WHERE p.id = ?`,
       [photoId]
     );
 
@@ -1508,6 +1511,25 @@ app.delete('/api/photos/:photoId', authenticateToken, requireAdmin, async (req, 
     }
 
     const photo = photos[0];
+
+    // 権限チェック：施設へのアクセス権をチェック
+    if (req.user.role !== 'admin') {
+      if (req.user.role === 'client') {
+        // クライアントは自分に割り当てられた施設の写真のみ削除可能
+        const [facilities] = await pool.execute(
+          `SELECT f.id FROM facilities f
+           INNER JOIN facility_clients fc ON f.id = fc.facility_id
+           WHERE f.id = ? AND fc.client_user_id = ? AND f.is_deleted = FALSE`,
+          [photo.facility_id, req.user.id]
+        );
+
+        if (facilities.length === 0) {
+          logger.warn(`写真削除権限なし: userId=${req.user.id}, photoId=${photoId}, facilityId=${photo.facility_id}`);
+          return res.status(403).json({ error: 'この写真を削除する権限がありません' });
+        }
+      }
+      // スタッフは全施設にアクセス可能なので権限チェック不要
+    }
 
     // ファイルを削除
     try {
@@ -1525,7 +1547,7 @@ app.delete('/api/photos/:photoId', authenticateToken, requireAdmin, async (req, 
     await pool.execute('DELETE FROM photos WHERE id = ?', [photoId]);
 
     res.json({ message: '写真を削除しました' });
-    logger.info(`写真削除: photoId=${photoId}`);
+    logger.info(`写真削除: photoId=${photoId}, userId=${req.user.id}, role=${req.user.role}`);
   } catch (error) {
     logger.error('写真削除エラー:', error);
     res.status(500).json({ error: '写真の削除に失敗しました' });
