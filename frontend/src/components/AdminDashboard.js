@@ -313,6 +313,36 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
     }
   };
 
+  // 直近のアップロードからアルバムに遷移
+  const handleRecentUploadClick = async (upload) => {
+    try {
+      setLoading(true);
+      // 1. アルバム管理タブに切り替え
+      setActiveTab('albums');
+
+      // 2. 施設のアルバム一覧を取得
+      const [albumsData, receiptsData] = await Promise.all([
+        albumsApi.getByFacility(upload.facility_id),
+        receiptsApi.getList(upload.facility_id)
+      ]);
+      setAlbums(albumsData);
+      setReceipts(receiptsData);
+      setSelectedAlbumFacility(upload.facility_id);
+      setAlbumViewTab('photos');
+
+      // 3. cleaning_date が一致するアルバムを検索して選択
+      const targetAlbum = albumsData.find(a => a.cleaning_date === upload.cleaning_date);
+      if (targetAlbum) {
+        setAlbumPhotos(targetAlbum.photos || []);
+        setSelectedSession(targetAlbum);
+      }
+    } catch (error) {
+      setError('アルバムの読み込みに失敗しました: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleDeletePhoto = async (photoId) => {
     if (!window.confirm('この写真を削除しますか?')) return;
     try {
@@ -557,7 +587,13 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
             <h2 style={styles.sectionTitle}>最近のアップロード</h2>
             <div style={styles.uploadsList}>
               {recentUploads.map((upload) => (
-                <div key={upload.id} style={styles.uploadItem}>
+                <div
+                  key={upload.id}
+                  style={{...styles.uploadItem, cursor: 'pointer'}}
+                  onClick={() => handleRecentUploadClick(upload)}
+                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#e3f2fd'}
+                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = ''}
+                >
                   <div style={styles.uploadIcon}>📄</div>
                   <div style={styles.uploadInfo}>
                     <div style={styles.uploadFacility}>{upload.facility_name}</div>

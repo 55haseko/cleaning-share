@@ -341,8 +341,8 @@ app.post('/api/auth/login', async (req, res) => {
     
     const token = jwt.sign(
       { userId: user.id, email: user.email, role: user.role },
-      JWT_SECRET,
-      { expiresIn: '24h' }
+      JWT_SECRET
+      // 有効期限なし（永久）
     );
 
     // ユーザーに関連する施設を取得（削除済みを除外）
@@ -1533,11 +1533,19 @@ app.delete('/api/photos/:photoId', authenticateToken, async (req, res) => {
 
     // ファイルを削除
     try {
-      if (photo.file_path && fsSync.existsSync(photo.file_path)) {
-        await fs.unlink(photo.file_path);
+      if (photo.file_path) {
+        const absoluteFilePath = path.join(STORAGE_ROOT, photo.file_path);
+        if (fsSync.existsSync(absoluteFilePath)) {
+          await fs.unlink(absoluteFilePath);
+          logger.info(`写真ファイル削除: ${absoluteFilePath}`);
+        }
       }
-      if (photo.thumbnail_path && fsSync.existsSync(photo.thumbnail_path)) {
-        await fs.unlink(photo.thumbnail_path);
+      if (photo.thumbnail_path) {
+        const absoluteThumbPath = path.join(STORAGE_ROOT, photo.thumbnail_path);
+        if (fsSync.existsSync(absoluteThumbPath)) {
+          await fs.unlink(absoluteThumbPath);
+          logger.info(`サムネイル削除: ${absoluteThumbPath}`);
+        }
       }
     } catch (fileError) {
       logger.error('ファイル削除エラー:', fileError);
@@ -1571,11 +1579,17 @@ app.delete('/api/sessions/:sessionId', authenticateToken, requireAdmin, async (r
     // 写真ファイルを削除
     for (const photo of photos) {
       try {
-        if (photo.file_path && fsSync.existsSync(photo.file_path)) {
-          await fs.unlink(photo.file_path);
+        if (photo.file_path) {
+          const absoluteFilePath = path.join(STORAGE_ROOT, photo.file_path);
+          if (fsSync.existsSync(absoluteFilePath)) {
+            await fs.unlink(absoluteFilePath);
+          }
         }
-        if (photo.thumbnail_path && fsSync.existsSync(photo.thumbnail_path)) {
-          await fs.unlink(photo.thumbnail_path);
+        if (photo.thumbnail_path) {
+          const absoluteThumbPath = path.join(STORAGE_ROOT, photo.thumbnail_path);
+          if (fsSync.existsSync(absoluteThumbPath)) {
+            await fs.unlink(absoluteThumbPath);
+          }
         }
       } catch (fileError) {
         logger.error('ファイル削除エラー:', fileError);
@@ -1596,8 +1610,11 @@ app.delete('/api/sessions/:sessionId', authenticateToken, requireAdmin, async (r
 
     for (const receipt of receipts) {
       try {
-        if (receipt.file_path && fsSync.existsSync(receipt.file_path)) {
-          await fs.unlink(receipt.file_path);
+        if (receipt.file_path) {
+          const absoluteReceiptPath = path.join(STORAGE_ROOT, receipt.file_path);
+          if (fsSync.existsSync(absoluteReceiptPath)) {
+            await fs.unlink(absoluteReceiptPath);
+          }
         }
       } catch (fileError) {
         logger.error('領収書ファイル削除エラー:', fileError);
@@ -1896,12 +1913,17 @@ app.get('/api/albums/:facilityId/:sessionId/download', authenticateToken, async 
 
     // 写真をZIPに追加
     for (const photo of photos) {
-      const filePath = photo.file_path;
+      // DBに保存されているパスは相対パス（photos/...）なので、絶対パスに変換
+      const relativePath = photo.file_path;
+      const absolutePath = path.join(STORAGE_ROOT, relativePath);
 
       // ファイルが存在するか確認
-      if (fsSync.existsSync(filePath)) {
-        const fileName = `${photo.type}_${photo.id}_${photo.original_name || path.basename(filePath)}`;
-        archive.file(filePath, { name: fileName });
+      if (fsSync.existsSync(absolutePath)) {
+        const fileName = `${photo.type}_${photo.id}_${photo.original_name || path.basename(absolutePath)}`;
+        archive.file(absolutePath, { name: fileName });
+        logger.info(`ZIP追加: ${fileName} (${absolutePath})`);
+      } else {
+        logger.warn(`ファイルが見つかりません: ${absolutePath} (DB: ${relativePath})`);
       }
     }
 
