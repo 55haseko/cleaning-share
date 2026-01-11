@@ -906,9 +906,9 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
                   </div>
                 </div>
 
-                {newUser.role === 'staff' && (
+                {(newUser.role === 'staff' || newUser.role === 'client') && (
                   <div style={styles.formGroup}>
-                    <label>担当施設</label>
+                    <label>{newUser.role === 'staff' ? '担当施設' : '担当施設（必須）'}</label>
                     <div style={styles.facilityList}>
                       {facilities.map(facility => (
                         <label key={facility.id} style={styles.checkboxLabel}>
@@ -926,6 +926,11 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
                         </label>
                       ))}
                     </div>
+                    {newUser.role === 'client' && newUser.facilityIds.length === 0 && (
+                      <p style={{ color: '#dc3545', fontSize: '12px', marginTop: '4px' }}>
+                        クライアントには最低1つの施設を選択してください
+                      </p>
+                    )}
                   </div>
                 )}
 
@@ -976,9 +981,9 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
                   </div>
                 </div>
 
-                {editUser.role === 'staff' && (
+                {(editUser.role === 'staff' || editUser.role === 'client') && (
                   <div style={styles.formGroup}>
-                    <label>担当施設</label>
+                    <label>{editUser.role === 'staff' ? '担当施設' : '担当施設（必須）'}</label>
                     <div style={styles.facilityList}>
                       {facilities.map(facility => (
                         <label key={facility.id} style={styles.checkboxLabel}>
@@ -996,6 +1001,11 @@ const AdminDashboard = ({ currentUser, onLogout }) => {
                         </label>
                       ))}
                     </div>
+                    {editUser.role === 'client' && editUser.facilityIds.length === 0 && (
+                      <p style={{ color: '#dc3545', fontSize: '12px', marginTop: '4px' }}>
+                        クライアントには最低1つの施設を選択してください
+                      </p>
+                    )}
                   </div>
                 )}
 

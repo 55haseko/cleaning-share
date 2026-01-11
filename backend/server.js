@@ -504,8 +504,11 @@ app.get('/api/users', authenticateToken, requireAdmin, async (req, res) => {
         );
         user.facilities = facilities;
       } else if (user.role === 'client') {
+        // facility_clients テーブルから取得（多対多対応）
         const [facilities] = await pool.execute(
-          'SELECT id, name FROM facilities WHERE client_user_id = ? AND is_deleted = FALSE',
+          `SELECT DISTINCT f.id, f.name FROM facilities f
+           INNER JOIN facility_clients fc ON f.id = fc.facility_id
+           WHERE fc.client_user_id = ? AND fc.removed_at IS NULL AND f.is_deleted = FALSE`,
           [user.id]
         );
         user.facilities = facilities;
@@ -559,9 +562,15 @@ app.post('/api/users', authenticateToken, requireAdmin, async (req, res) => {
       }
     }
     
-    // クライアントの場合、施設を更新
+    // クライアントの場合、facility_clients テーブルに登録
     if (role === 'client' && facilityIds.length > 0) {
       for (const facilityId of facilityIds) {
+        // facility_clients テーブルに登録（多対多関係）
+        await pool.execute(
+          'INSERT INTO facility_clients (facility_id, client_user_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE removed_at = NULL',
+          [facilityId, userId]
+        );
+        // 後方互換性のため facilities テーブルの client_user_id も更新（将来的に廃止予定）
         await pool.execute(
           'UPDATE facilities SET client_user_id = ? WHERE id = ?',
           [userId, facilityId]
@@ -616,7 +625,7 @@ app.put('/api/users/:userId', authenticateToken, requireAdmin, async (req, res) 
         'DELETE FROM staff_facilities WHERE staff_user_id = ?',
         [userId]
       );
-      
+
       // 新しい割り当てを追加
       if (facilityIds && facilityIds.length > 0) {
         for (const facilityId of facilityIds) {
@@ -627,7 +636,47 @@ app.put('/api/users/:userId', authenticateToken, requireAdmin, async (req, res) 
         }
       }
     }
-    
+
+    // クライアントの施設割り当てを更新
+    if (role === 'client') {
+      // 現在のクライアント割当を取得
+      const [currentClients] = await pool.execute(
+        'SELECT facility_id FROM facility_clients WHERE client_user_id = ? AND removed_at IS NULL',
+        [userId]
+      );
+      const currentFacilityIds = currentClients.map(c => c.facility_id);
+
+      // 削除する施設（現在のリストにあるが、新しいリストにない）
+      for (const facilityId of currentFacilityIds) {
+        if (!facilityIds || !facilityIds.includes(facilityId)) {
+          await pool.execute(
+            'UPDATE facility_clients SET removed_at = NOW() WHERE facility_id = ? AND client_user_id = ?',
+            [facilityId, userId]
+          );
+        }
+      }
+
+      // 追加する施設（新しいリストにあるが、現在のリストにない）
+      if (facilityIds && facilityIds.length > 0) {
+        for (const facilityId of facilityIds) {
+          if (!currentFacilityIds.includes(facilityId)) {
+            try {
+              await pool.execute(
+                'INSERT INTO facility_clients (facility_id, client_user_id) VALUES (?, ?)',
+                [facilityId, userId]
+              );
+            } catch (error) {
+              // 既に存在する場合（removed_at がNULLでない可能性）
+              await pool.execute(
+                'UPDATE facility_clients SET removed_at = NULL WHERE facility_id = ? AND client_user_id = ?',
+                [facilityId, userId]
+              );
+            }
+          }
+        }
+      }
+    }
+
     res.json({ message: 'ユーザー情報を更新しました' });
   } catch (error) {
     logger.error('ユーザー更新エラー:', error);
@@ -1308,8 +1357,8 @@ app.post('/api/photos/upload', authenticateToken, (req, res, next) => {
       // 静的ファイル配信が /uploads → STORAGE_ROOT にマウントされているため
       // /uploads/photos/... でアクセス可能
       const [result] = await pool.execute(
-        'INSERT INTO photos (cleaning_session_id, file_path, thumbnail_path, type, file_size, original_name) VALUES (?, ?, ?, ?, ?, ?)',
-        [actualSessionId, relativePath.replace(/\\/g, '/'), relativeThumbPath ? relativeThumbPath.replace(/\\/g, '/') : null, type, fileSize, file.originalname]
+        'INSERT INTO photos (cleaning_session_id, file_path, thumbnail_path, type, file_size, original_name, uploaded_by) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        [actualSessionId, relativePath.replace(/\\/g, '/'), relativeThumbPath ? relativeThumbPath.replace(/\\/g, '/') : null, type, fileSize, file.originalname, req.user.id]
       );
 
       uploadedFiles.push({
@@ -1492,14 +1541,14 @@ app.post('/api/monthly-checks/save', authenticateToken, async (req, res) => {
   }
 });
 
-// 写真削除エンドポイント（施設アクセス権でチェック）
+// 写真削除エンドポイント（アップローダー確認 + 施設アクセス権でチェック）
 app.delete('/api/photos/:photoId', authenticateToken, async (req, res) => {
   try {
     const { photoId } = req.params;
 
     // 写真情報を取得（セッション情報含む）
     const [photos] = await pool.execute(
-      `SELECT p.*, cs.facility_id
+      `SELECT p.*, cs.facility_id, cs.staff_user_id
        FROM photos p
        INNER JOIN cleaning_sessions cs ON p.cleaning_session_id = cs.id
        WHERE p.id = ?`,
@@ -1512,23 +1561,31 @@ app.delete('/api/photos/:photoId', authenticateToken, async (req, res) => {
 
     const photo = photos[0];
 
-    // 権限チェック：施設へのアクセス権をチェック
+    // 権限チェック：アップローダー確認 + 施設アクセス権
     if (req.user.role !== 'admin') {
+      // アップローダーを特定（uploaded_by があればそれを使用、なければ session の staff_user_id）
+      const uploaderId = photo.uploaded_by || photo.staff_user_id;
+
       if (req.user.role === 'client') {
         // クライアントは自分に割り当てられた施設の写真のみ削除可能
         const [facilities] = await pool.execute(
           `SELECT f.id FROM facilities f
            INNER JOIN facility_clients fc ON f.id = fc.facility_id
-           WHERE f.id = ? AND fc.client_user_id = ? AND f.is_deleted = FALSE`,
+           WHERE f.id = ? AND fc.client_user_id = ? AND fc.removed_at IS NULL AND f.is_deleted = FALSE`,
           [photo.facility_id, req.user.id]
         );
 
         if (facilities.length === 0) {
-          logger.warn(`写真削除権限なし: userId=${req.user.id}, photoId=${photoId}, facilityId=${photo.facility_id}`);
+          logger.warn(`写真削除権限なし(施設アクセス権): userId=${req.user.id}, photoId=${photoId}, facilityId=${photo.facility_id}`);
           return res.status(403).json({ error: 'この写真を削除する権限がありません' });
         }
+      } else if (req.user.role === 'staff') {
+        // スタッフは自分がアップロードした写真のみ削除可能
+        if (uploaderId !== req.user.id) {
+          logger.warn(`写真削除権限なし(アップローダー不一致): userId=${req.user.id}, photoId=${photoId}, uploaderId=${uploaderId}`);
+          return res.status(403).json({ error: 'この写真を削除する権限がありません。自分がアップロードした写真のみ削除できます。' });
+        }
       }
-      // スタッフは全施設にアクセス可能なので権限チェック不要
     }
 
     // ファイルを削除
